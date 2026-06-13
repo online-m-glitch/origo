@@ -95,10 +95,15 @@
 
   /* PRODUCT GRID */
   .grid{
-    display:flex;
-    flex-direction:column;
+    display:grid;
+    grid-template-columns:1fr;
     gap:10px;
     margin-top:16px;
+  }
+  @media(min-width:700px){
+    .grid{
+      grid-template-columns:1fr 1fr;
+    }
   }
   .card{
     background:var(--card);
@@ -206,6 +211,19 @@
   }
   .add-btn:hover{background:var(--primary-dark);}
   .add-btn.added{background:var(--accent); color:var(--primary-dark);}
+  .cart-badge{
+    font-size:11px;
+    font-weight:700;
+    color:var(--primary);
+    background:#eaf0fb;
+    border:1px solid var(--primary);
+    border-radius:6px;
+    padding:2px 8px;
+    margin-top:4px;
+    display:none;
+    width:fit-content;
+  }
+  .cart-badge.show{display:block;}
 
   /* SECTION TITLES */
   .section-title{
@@ -244,16 +262,31 @@
     border-bottom:1px solid var(--border);
     font-size:13px;
     gap:8px;
+    flex-wrap:wrap;
   }
-  .cart-item .ci-name{flex:1;}
+  .cart-item .ci-name{flex:1; min-width:140px;}
   .cart-item .ci-sub{color:var(--muted); font-size:11px;}
+  .ci-actions{
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .ci-qty{
+    width:28px;
+    text-align:center;
+    font-weight:700;
+    font-size:13px;
+  }
   .cart-item .ci-remove{
-    background:none;
-    border:none;
+    background:#fdeaea;
+    border:1px solid #e57373;
     color:#c0392b;
     cursor:pointer;
-    font-size:16px;
-    padding:0 4px;
+    font-size:12px;
+    font-weight:600;
+    padding:6px 10px;
+    border-radius:6px;
+    white-space:nowrap;
   }
   .totals-row{
     display:flex;
@@ -487,6 +520,9 @@
         <input type="text" id="custAddress" placeholder="Dirección completa para el envío">
       </div>
       <div class="error-msg" id="errEntrega">Seleccioná una opción de entrega.</div>
+      <div class="discount-note show" style="margin-top:8px;">
+        🚚 El envío tiene un costo adicional a coordinar. <b>Para pedidos superiores a $100.000 el envío es gratis.</b>
+      </div>
     </div>
 
     <div class="form-group">
@@ -502,6 +538,9 @@
         </label>
       </div>
       <div class="error-msg" id="errPago">Seleccioná una forma de pago.</div>
+      <div class="discount-note show" id="envioPagoNote" style="display:none;">
+        🏦 Para pedidos con <b>envío</b>, la única forma de pago disponible es <b>Transferencia</b>.
+      </div>
     </div>
 
     <div class="error-msg" id="errCart">Agregá al menos un producto al pedido.</div>
@@ -562,6 +601,7 @@ const productos = [
 // ===== Configuración =====
 const WHATSAPP_NUMBER = "5491160123520"; // <- número donde llegan los pedidos
 const DESCUENTO_EFECTIVO = 0.10;
+const ENVIO_GRATIS_DESDE = 100000;
 
 // ===== Estado del carrito =====
 let cart = {}; // { sku: cantidad }
@@ -590,11 +630,12 @@ function renderProducts(){
         <div class="qty-row">
           <div class="qty-controls">
             <button onclick="changeQty('${p.sku}', -1)">−</button>
-            <input type="number" id="qty-${p.sku}" value="1" min="1" max="99">
+            <input type="number" id="qty-${p.sku}" value="1" min="1" max="99" onchange="onQtyInputChange('${p.sku}')">
             <button onclick="changeQty('${p.sku}', 1)">+</button>
           </div>
           <button class="add-btn" id="add-${p.sku}" onclick="addToCart('${p.sku}')">Agregar</button>
         </div>
+        <div class="cart-badge" id="badge-${p.sku}"></div>
       </div>
     `;
     grid.appendChild(card);
@@ -608,6 +649,27 @@ function changeQty(sku, delta){
   if(val < 1) val = 1;
   if(val > 99) val = 99;
   input.value = val;
+
+  // Si el producto ya está en el carrito, editamos directamente su cantidad
+  if(cart[sku]){
+    cart[sku] = val;
+    renderCart();
+    updateCardBadges();
+  }
+}
+
+function onQtyInputChange(sku){
+  const input = document.getElementById("qty-"+sku);
+  let val = parseInt(input.value) || 1;
+  if(val < 1) val = 1;
+  if(val > 99) val = 99;
+  input.value = val;
+
+  if(cart[sku]){
+    cart[sku] = val;
+    renderCart();
+    updateCardBadges();
+  }
 }
 
 function addToCart(sku){
@@ -615,27 +677,47 @@ function addToCart(sku){
   let qty = parseInt(input.value) || 1;
   if(qty < 1) qty = 1;
 
-  if(cart[sku]){
-    cart[sku] += qty;
-  } else {
-    cart[sku] = qty;
-  }
+  cart[sku] = qty;
 
-  const btn = document.getElementById("add-"+sku);
-  btn.textContent = "✓ Agregado";
-  btn.classList.add("added");
-  setTimeout(()=>{
-    btn.textContent = "Agregar";
-    btn.classList.remove("added");
-  }, 1200);
-
-  input.value = 1;
   renderCart();
+  updateCardBadges();
+}
+
+function updateCardBadges(){
+  productos.forEach(p=>{
+    const badge = document.getElementById("badge-"+p.sku);
+    const btn = document.getElementById("add-"+p.sku);
+    const input = document.getElementById("qty-"+p.sku);
+    if(!badge || !btn || !input) return;
+    if(cart[p.sku]){
+      badge.textContent = "En tu pedido: " + cart[p.sku] + " (editá la cantidad arriba)";
+      badge.classList.add("show");
+      btn.textContent = "Quitar del pedido";
+      btn.onclick = function(){ removeFromCart(p.sku); input.value = 1; };
+      input.value = cart[p.sku];
+    } else {
+      badge.classList.remove("show");
+      btn.textContent = "Agregar";
+      btn.onclick = function(){ addToCart(p.sku); };
+      input.value = 1;
+    }
+  });
+}
+
+function adjustCartQty(sku, delta){
+  if(!cart[sku]) return;
+  cart[sku] += delta;
+  if(cart[sku] < 1){
+    delete cart[sku];
+  }
+  renderCart();
+  updateCardBadges();
 }
 
 function removeFromCart(sku){
   delete cart[sku];
   renderCart();
+  updateCardBadges();
 }
 
 function getPaymentMethod(){
@@ -666,9 +748,16 @@ function renderCart(){
       row.innerHTML = `
         <div class="ci-name">
           ${p.nombre}
-          <div class="ci-sub">SKU ${p.sku} · ${qty} x ${fmt(p.precio)} = ${fmt(lineTotal)}</div>
+          <div class="ci-sub">SKU ${p.sku} · ${fmt(p.precio)} c/u = ${fmt(lineTotal)}</div>
         </div>
-        <button class="ci-remove" onclick="removeFromCart('${sku}')" title="Quitar">✕</button>
+        <div class="ci-actions">
+          <div class="qty-controls">
+            <button onclick="adjustCartQty('${sku}', -1)">−</button>
+            <span class="ci-qty">${qty}</span>
+            <button onclick="adjustCartQty('${sku}', 1)">+</button>
+          </div>
+          <button class="ci-remove" onclick="removeFromCart('${sku}')" title="Quitar del pedido">✕ Quitar</button>
+        </div>
       `;
       cartItemsEl.appendChild(row);
     });
@@ -712,8 +801,38 @@ document.querySelectorAll('input[name="entrega"]').forEach(radio=>{
     } else {
       addressField.classList.remove("show");
     }
+    updatePagoOptions();
   });
 });
+
+function updatePagoOptions(){
+  const entrega = document.querySelector('input[name="entrega"]:checked');
+  const optEfectivo = document.getElementById("optEfectivo");
+  const inputEfectivo = optEfectivo.querySelector('input[name="pago"]');
+  const optTransferencia = document.getElementById("optTransferencia");
+  const inputTransferencia = optTransferencia.querySelector('input[name="pago"]');
+  const note = document.getElementById("envioPagoNote");
+
+  if(entrega && entrega.value === "Envío"){
+    // Forzar Transferencia, deshabilitar Efectivo
+    if(inputEfectivo.checked){
+      inputEfectivo.checked = false;
+      inputTransferencia.checked = true;
+      optTransferencia.classList.add("selected");
+    }
+    optEfectivo.classList.remove("selected");
+    inputEfectivo.disabled = true;
+    optEfectivo.style.opacity = "0.5";
+    optEfectivo.style.cursor = "not-allowed";
+    note.style.display = "block";
+  } else {
+    inputEfectivo.disabled = false;
+    optEfectivo.style.opacity = "";
+    optEfectivo.style.cursor = "";
+    note.style.display = "none";
+  }
+  renderCart();
+}
 
 // ===== Radios de Pago =====
 document.querySelectorAll('input[name="pago"]').forEach(radio=>{
@@ -729,6 +848,7 @@ document.querySelectorAll('input[name="pago"]').forEach(radio=>{
 document.querySelectorAll(".radio-option").forEach(opt=>{
   opt.addEventListener("click", (e)=>{
     const input = opt.querySelector('input[type="radio"]');
+    if(input && input.disabled) return;
     if(input && e.target !== input){
       input.checked = true;
       input.dispatchEvent(new Event("change"));
@@ -777,7 +897,11 @@ function enviarPedido(){
   }
 
   // Pago
-  const pago = document.querySelector('input[name="pago"]:checked');
+  let pago = document.querySelector('input[name="pago"]:checked');
+  if(entrega.value === "Envío"){
+    pago = document.querySelector('input[name="pago"][value="Transferencia"]');
+    pago.checked = true;
+  }
   if(!pago){
     document.getElementById("errPago").classList.add("show");
     valid = false;
@@ -819,8 +943,17 @@ function enviarPedido(){
     entregaLine += `\nDirección: ${direccion}`;
   }
 
+  let envioNote = "";
+  if(entrega.value === "Envío"){
+    if(total >= ENVIO_GRATIS_DESDE){
+      envioNote = `\n\n🚚 Envío sin cargo (compra mayor a ${fmt(ENVIO_GRATIS_DESDE)})`;
+    } else {
+      envioNote = `\n\n🚚 El envío tiene costo adicional (a coordinar). Compras desde ${fmt(ENVIO_GRATIS_DESDE)} tienen envío gratis.`;
+    }
+  }
+
   const mensaje =
-`🛒 *NUEVO PEDIDO - VENTAS ADR*
+`🛒 *NUEVO PEDIDO - ORIGO*
 
 *Cliente:* ${name}
 *Email:* ${email}
@@ -830,7 +963,7 @@ ${entregaLine}
 *Detalle del pedido:*
 ${detalle}
 Subtotal: ${fmt(subtotal)}
-${descLine}*TOTAL: ${fmt(total)}*`;
+${descLine}*TOTAL: ${fmt(total)}*${envioNote}`;
 
   const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(mensaje)}`;
   window.open(url, "_blank");
@@ -839,6 +972,7 @@ ${descLine}*TOTAL: ${fmt(total)}*`;
 // Init
 renderProducts();
 renderCart();
+updateCardBadges();
 </script>
 
 </body>
