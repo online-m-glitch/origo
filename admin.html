@@ -1321,11 +1321,27 @@ async function guardarProducto(){
   };
   if(isNuevo){
     if(productos.find(p=>p.sku===sku)){ toast("Ya existe ese SKU.","err"); return; }
-    productos.push(obj);
-  } else {
-    productos[editandoProdIdx]=obj;
   }
-
+  try{
+    await sbGuardar("producto", obj);
+    if(isNuevo){
+      const cantInicial=parseInt(document.getElementById("pStockInicial").value)||0;
+      if(cantInicial>0){
+        const fecha=document.getElementById("pStockFecha").value||new Date().toISOString().split("T")[0];
+        const mov={fecha, tipo:"Ingreso", sku:obj.sku, producto:obj.nombre, cantidad:cantInicial, costo:obj.costo, precio:obj.precio, obs:"Stock inicial", origen:""};
+        const saved=await sbGuardar("movimiento",mov);
+        movimientos.unshift(Object.assign({},mov,saved||{}));
+      }
+      productos.push(obj);
+    } else {
+      productos[editandoProdIdx]=obj;
+    }
+    cerrarModalProducto();
+    actualizarProvLists(); actualizarSkuList(); actualizarSkuListCompras();
+    renderProductos(); renderPanel(); renderStock(); renderAlertas(); renderAnalisis();
+    toast(isNuevo?"Producto agregado ✅":"Producto actualizado ✅","ok");
+  }catch(e){ toast("No se pudo guardar: "+e.message,"err"); }
+}
 
 function confirmarElimProd(idx){
   confirmCb=async()=>{ await sbGuardar("deleteProd",productos[idx].sku); productos.splice(idx,1); renderProductos();renderPanel();renderStock();renderAlertas();renderAnalisis(); toast("Eliminado.","ok"); };
@@ -2382,6 +2398,10 @@ function resetTotal(){
   document.getElementById("modalConfirm").classList.add("show");
 }
 
+
+// ================================================================
+// NAVEGACIÓN (recuperado)
+// ================================================================
 </script>
 </body>
 </html>
