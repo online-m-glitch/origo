@@ -930,14 +930,43 @@ tr:hover td{background:#fafbfc;}
 // CONSTANTES Y CLAVES
 // ================================================================
 const PASS = "origo2026";
-const LS = {
-  productos: "origo_productos",
-  movimientos: "origo_movimientos",
-  cc: "origo_cuentacorriente",
-  stockML: "origo_stockml",
-  compras: "origo_compras",
-  ventas: "origo_ventas"
-};
+const SB_URL = "https://piqkwewxbjumyqwtmnxn.supabase.co";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I";
+
+async function sbGet(table, params){
+  params = params||"";
+  const r = await fetch(SB_URL+"/rest/v1/"+table+"?"+(params||""), {
+    headers: {"apikey": SB_KEY, "Authorization": "Bearer "+SB_KEY}
+  });
+  if(!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+async function sbInsert(table, data){
+  const r = await fetch(SB_URL+"/rest/v1/"+table, {
+    method:"POST",
+    headers: {"apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY,"Content-Type":"application/json","Prefer":"return=representation"},
+    body: JSON.stringify(data)
+  });
+  if(!r.ok) throw new Error(await r.text());
+  const res = await r.json();
+  return Array.isArray(res)?res[0]:res;
+}
+async function sbUpsert(table, data){
+  const r = await fetch(SB_URL+"/rest/v1/"+table, {
+    method:"POST",
+    headers: {"apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY,"Content-Type":"application/json","Prefer":"resolution=merge-duplicates,return=minimal"},
+    body: JSON.stringify(data)
+  });
+  if(!r.ok) throw new Error(await r.text());
+}
+async function sbDelete(table, filter){
+  const r = await fetch(SB_URL+"/rest/v1/"+table+"?"+filter, {
+    method:"DELETE",
+    headers: {"apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY}
+  });
+  if(!r.ok) throw new Error(await r.text());
+}
+
 
 // ================================================================
 // ESTADO GLOBAL
@@ -976,8 +1005,8 @@ document.getElementById("passInput").addEventListener("keydown", e=>{ if(e.key==
 // ================================================================
 // INIT
 // ================================================================
-function iniciar(){
-  cargarDatos();
+async function iniciar(){
+  await cargarDatos();
   // Fechas por defecto en formularios
   const hoy = new Date().toISOString().split("T")[0];
   document.getElementById("mFecha").value = hoy;
@@ -1004,46 +1033,75 @@ function iniciar(){
 // ================================================================
 // PERSISTENCIA
 // ================================================================
-function cargarDatos(){
-  try{ productos = JSON.parse(localStorage.getItem(LS.productos)||"[]"); }catch{ productos=[]; }
-  try{ movimientos = JSON.parse(localStorage.getItem(LS.movimientos)||"[]"); }catch{ movimientos=[]; }
-  try{ cuentaCorriente = JSON.parse(localStorage.getItem(LS.cc)||"[]"); }catch{ cuentaCorriente=[]; }
-  try{ stockML = JSON.parse(localStorage.getItem(LS.stockML)||"{}"); }catch{ stockML={}; }
-  try{ compras = JSON.parse(localStorage.getItem(LS.compras)||"[]"); }catch{ compras=[]; }
-  try{ ventas = JSON.parse(localStorage.getItem(LS.ventas)||"[]"); }catch{ ventas=[]; }
-
-  // Si no hay productos, intentar migrar desde la clave vieja del admin anterior
-  if(productos.length === 0){
-    try{
-      const viejo = JSON.parse(localStorage.getItem("origo_productos")||"[]");
-      if(viejo.length){
-        // Migrar al nuevo formato
-        productos = viejo.map(p=>({
-          sku: p.sku, nombre: p.nombre, proveedor:"",
-          costo: 0, precio: p.precio, stockMin: 15,
-          stockOn: p.stock !== 0 ? 1 : 0, img: p.img||""
-        }));
-        guardarLS("productos");
-        toast("Productos migrados del catálogo anterior ✅","ok");
-      }
-    }catch{}
+async function cargarDatos(){
+  mostrarCargando(true);
+  try{
+    const [prods, movs, cc, sml, comps, vents] = await Promise.all([
+      sbGet("productos","order=sku.asc"),
+      sbGet("movimientos","order=created_at.desc&limit=2000"),
+      sbGet("cuenta_corriente","order=created_at.desc"),
+      sbGet("stock_ml","select=sku,cantidad"),
+      sbGet("compras","order=created_at.desc"),
+      sbGet("ventas","order=created_at.desc&limit=2000")
+    ]);
+    productos = prods||[];
+    movimientos = movs||[];
+    cuentaCorriente = cc||[];
+    stockML = {};
+    (sml||[]).forEach(function(r){ stockML[r.sku]=r.cantidad; });
+    compras = (comps||[]).map(function(c){
+      return Object.assign({},c,{lineas: typeof c.lineas==="string"?JSON.parse(c.lineas):(c.lineas||[])});
+    });
+    ventas = vents||[];
+  }catch(e){
+    toast("Error cargando datos: "+e.message,"err",6000);
+    console.error(e);
   }
+  mostrarCargando(false);
 }
 
-function guardarLS(tipo){
+function mostrarCargando(on){
+  var el=document.getElementById("loadingOverlay");
+  if(!el){
+    el=document.createElement("div");
+    el.id="loadingOverlay";
+    el.style.cssText="position:fixed;inset:0;background:rgba(13,34,89,.8);z-index:9999;display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;font-weight:700;gap:12px;flex-direction:column;";
+    el.innerHTML="<span style='font-size:36px;'>⏳</span><span>Cargando datos de Supabase...</span>";
+    document.body.appendChild(el);
+  }
+  el.style.display=on?"flex":"none";
+}
+
+function guardarLS(tipo){ /* migrado a Supabase — ver sbGuardar */ }
+
+async function sbGuardar(tipo, data){
   try{
-    if(tipo==="productos")     localStorage.setItem(LS.productos, JSON.stringify(productos));
-    if(tipo==="movimientos")   localStorage.setItem(LS.movimientos, JSON.stringify(movimientos));
-    if(tipo==="cc")            localStorage.setItem(LS.cc, JSON.stringify(cuentaCorriente));
-    if(tipo==="stockml")       localStorage.setItem(LS.stockML, JSON.stringify(stockML));
-    if(tipo==="compras")       localStorage.setItem(LS.compras, JSON.stringify(compras));
-    if(tipo==="ventas")        localStorage.setItem(LS.ventas, JSON.stringify(ventas));
-    // Sincronizar con index.html (formato viejo)
-    if(tipo==="productos"){
-      const forIndex = productos.map(p=>({sku:p.sku,nombre:p.nombre,precio:p.precio,stock:p.stockOn,img:p.img||""}));
-      localStorage.setItem("origo_productos", JSON.stringify(forIndex));
+    if(tipo==="producto")      { await sbUpsert("productos", data); }
+    if(tipo==="deleteProd")    { await sbDelete("productos","sku=eq."+encodeURIComponent(data)); }
+    if(tipo==="movimiento")    { const r=await sbInsert("movimientos", data); return r; }
+    if(tipo==="deleteMovimiento"){ await sbDelete("movimientos","id=eq."+data); }
+    if(tipo==="cc")            { await sbInsert("cuenta_corriente", data); }
+    if(tipo==="deleteCc")      { await sbDelete("cuenta_corriente","id=eq."+data); }
+    if(tipo==="stockml")       { await sbUpsert("stock_ml",{sku:data.sku,cantidad:data.cantidad,updated_at:new Date().toISOString()}); }
+    if(tipo==="compra")        { await sbUpsert("compras",Object.assign({},data,{lineas:JSON.stringify(data.lineas)})); }
+    if(tipo==="deleteCompra")  { await sbDelete("compras","id=eq."+data); }
+    if(tipo==="venta")         { const r=await sbInsert("ventas",data); return r; }
+    if(tipo==="deleteVenta")   { await sbDelete("ventas","id=eq."+data); }
+    if(tipo==="reset")         {
+      await Promise.all([
+        sbDelete("productos","sku=neq.NOOP_PLACEHOLDER"),
+        sbDelete("movimientos","id=gt.0"),
+        sbDelete("ventas","id=gt.0"),
+        sbDelete("compras","id=gt.0"),
+        sbDelete("cuenta_corriente","id=gt.0"),
+        sbDelete("stock_ml","sku=neq.NOOP_PLACEHOLDER")
+      ]);
     }
-  }catch(e){ toast("Error al guardar. Almacenamiento lleno.","err"); }
+  }catch(e){
+    toast("Error en Supabase: "+e.message,"err",6000);
+    console.error(e);
+    throw e;
+  }
 }
 
 // ================================================================
@@ -1245,7 +1303,7 @@ function calcMargenModal(){
   } else { el.value=""; el.style.color="#0d2259"; }
 }
 
-function guardarProducto(){
+async function guardarProducto(){
   const sku=document.getElementById("pSku").value.trim().toUpperCase();
   const nombre=document.getElementById("pNombre").value.trim();
   if(!sku||!nombre){ toast("SKU y nombre son obligatorios.","err"); return; }
@@ -1267,31 +1325,10 @@ function guardarProducto(){
   } else {
     productos[editandoProdIdx]=obj;
   }
-  guardarLS("productos");
 
-  // Stock inicial (solo productos nuevos)
-  if(isNuevo){
-    const cantInicial=parseInt(document.getElementById("pStockInicial").value)||0;
-    if(cantInicial>0){
-      const fecha=document.getElementById("pStockFecha").value||new Date().toISOString().split("T")[0];
-      movimientos.unshift({
-        fecha, tipo:"Ingreso", sku:obj.sku,
-        producto:obj.nombre, cantidad:cantInicial,
-        costo:obj.costo, precio:obj.precio,
-        obs:"Stock inicial"
-      });
-      guardarLS("movimientos");
-    }
-  }
-
-  cerrarModalProducto();
-  actualizarProvLists(); actualizarSkuList(); actualizarSkuListCompras();
-  renderProductos(); renderPanel(); renderStock(); renderAlertas(); renderAnalisis();
-  toast(isNuevo?"Producto agregado ✅":"Producto actualizado ✅","ok");
-}
 
 function confirmarElimProd(idx){
-  confirmCb=()=>{ productos.splice(idx,1); guardarLS("productos"); renderProductos();renderPanel();renderStock();renderAlertas();renderAnalisis(); toast("Eliminado.","ok"); };
+  confirmCb=async()=>{ await sbGuardar("deleteProd",productos[idx].sku); productos.splice(idx,1); renderProductos();renderPanel();renderStock();renderAlertas();renderAnalisis(); toast("Eliminado.","ok"); };
   document.getElementById("confirmMsg").textContent=`¿Eliminar "${productos[idx].nombre}"?`;
   document.getElementById("modalConfirm").classList.add("show");
 }
@@ -1325,9 +1362,10 @@ function renderStock(){
   });
   document.getElementById("stockBody").innerHTML = rows.join("") || `<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-soft);">Sin productos.</td></tr>`;
 }
-function actualizarStockML(sku, val){
-  stockML[sku]=parseInt(val)||0;
-  guardarLS("stockml");
+async function actualizarStockML(sku, val){
+  const cantidad=parseInt(val)||0;
+  stockML[sku]=cantidad;
+  await sbGuardar("stockml",{sku,cantidad});
   renderPanel(); renderAlertas();
 }
 
@@ -1378,7 +1416,7 @@ function autocompletarMovSku(val){
 function actualizarSkuList(){
   document.getElementById("skuList").innerHTML=productos.map(p=>`<option value="${esc(p.sku)}">`).join("");
 }
-function registrarMovimiento(){
+async function registrarMovimiento(){
   const fecha=document.getElementById("mFecha").value;
   const tipo=document.getElementById("mTipo").value;
   const sku=document.getElementById("mSku").value.trim().toUpperCase();
@@ -1386,8 +1424,9 @@ function registrarMovimiento(){
   const obs=document.getElementById("mObs").value.trim();
   if(!fecha||!sku||!cantidad){ toast("Completá fecha, SKU y cantidad.","err"); return; }
   const p=productos.find(x=>x.sku.toUpperCase()===sku);
-  movimientos.unshift({ fecha, tipo, sku, producto:p?p.nombre:"SKU no encontrado", cantidad, costo:p?p.costo:0, precio:p?p.precio:0, obs });
-  guardarLS("movimientos");
+  const newMov={fecha, tipo, sku, producto:p?p.nombre:"SKU no encontrado", cantidad, costo:p?p.costo:0, precio:p?p.precio:0, obs, origen:""};
+  try{ const saved=await sbGuardar("movimiento",newMov); movimientos.unshift(Object.assign({},newMov,saved||{})); }
+  catch(e){ return; }
   document.getElementById("mSku").value=""; document.getElementById("mCantidad").value=""; document.getElementById("mObs").value=""; document.getElementById("mProducto").value=""; document.getElementById("mCostoInfo").textContent="—"; document.getElementById("mPrecioInfo").textContent="—";
   renderMovimientos(); renderPanel(); renderStock(); renderAlertas();
   toast("Movimiento registrado ✅","ok");
@@ -1423,7 +1462,7 @@ function renderMovimientos(buscar){
   }).join("");
 }
 function eliminarMovimiento(idx){
-  confirmCb=()=>{ movimientos.splice(idx,1); guardarLS("movimientos"); renderMovimientos();renderPanel();renderStock();renderAlertas(); toast("Eliminado.","ok"); };
+  confirmCb=async()=>{ const m=movimientos[idx]; await sbGuardar("deleteMovimiento",m.id); movimientos.splice(idx,1); renderMovimientos();renderPanel();renderStock();renderAlertas(); toast("Eliminado.","ok"); };
   document.getElementById("confirmMsg").textContent="¿Eliminar este movimiento?";
   document.getElementById("modalConfirm").classList.add("show");
 }
@@ -1453,7 +1492,7 @@ function calcularSaldoProv(prov){
   }
   return saldo;
 }
-function registrarCC(){
+async function registrarCC(){
   const fecha=document.getElementById("ccFecha").value;
   const tipo=document.getElementById("ccTipo").value;
   const prov=document.getElementById("ccProveedor").value.trim().toUpperCase();
@@ -1461,8 +1500,9 @@ function registrarCC(){
   const desc=document.getElementById("ccDesc").value.trim();
   const importe=parseFloat(document.getElementById("ccImporte").value)||0;
   if(!fecha||!prov||!importe){ toast("Completá fecha, proveedor e importe.","err"); return; }
-  cuentaCorriente.unshift({ fecha, tipo, proveedor:prov, factura, descripcion:desc, importe });
-  guardarLS("cc");
+  const newCC={fecha, tipo, proveedor:prov, factura, descripcion:desc, importe};
+  try{ const saved=await sbGuardar("cc",newCC); cuentaCorriente.unshift(Object.assign({},newCC,saved||{})); }
+  catch(e){ return; }
   actualizarProvLists();
   document.getElementById("ccProveedor").value=""; document.getElementById("ccFactura").value=""; document.getElementById("ccDesc").value=""; document.getElementById("ccImporte").value="";
   renderCC(); renderPanel();
@@ -1505,7 +1545,7 @@ function renderCC(){
   }).join("");
 }
 function eliminarCC(idx){
-  confirmCb=()=>{ cuentaCorriente.splice(idx,1); guardarLS("cc"); renderCC(); toast("Eliminado.","ok"); };
+  confirmCb=async()=>{ const c=cuentaCorriente[idx]; await sbGuardar("deleteCc",c.id); cuentaCorriente.splice(idx,1); renderCC(); toast("Eliminado.","ok"); };
   document.getElementById("confirmMsg").textContent="¿Eliminar este movimiento?";
   document.getElementById("modalConfirm").classList.add("show");
 }
@@ -1630,7 +1670,7 @@ function renderLineasCompra(){
     </tr>`).join("");
 }
 
-function guardarCompra(){
+async function guardarCompra(){
   const fecha = document.getElementById("cFecha").value;
   const proveedor = document.getElementById("cProveedor").value.trim().toUpperCase();
   const factura = document.getElementById("cFactura").value.trim();
@@ -1650,32 +1690,26 @@ function guardarCompra(){
     lineas: [...lineasCompra]
   };
   compras.unshift(compra);
-  guardarLS("compras");
+  try{
+    await sbGuardar("compra", compra);
 
-  // 2. Generar Ingresos en Movimientos (uno por línea)
-  for(const l of lineasCompra){
-    const p = productos.find(x=>x.sku.toUpperCase()===l.sku);
-    movimientos.unshift({
-      fecha, tipo:"Ingreso", sku:l.sku,
-      producto: l.producto,
-      cantidad: l.cantidad,
-      costo: l.costo,
-      precio: p?p.precio:0,
-      obs: `Compra ${factura||"s/n"} · ${proveedor}`
-    });
-  }
-  guardarLS("movimientos");
+    // 2. Generar Ingresos en Movimientos
+    for(const l of lineasCompra){
+      const p=productos.find(x=>x.sku.toUpperCase()===l.sku);
+      const mov={fecha, tipo:"Ingreso", sku:l.sku, producto:l.producto, cantidad:l.cantidad,
+        costo:l.costo, precio:p?p.precio:0, obs:"Compra "+(factura||"s/n")+" · "+proveedor, origen:""};
+      const saved=await sbGuardar("movimiento",mov);
+      movimientos.unshift(Object.assign({},mov,saved||{}));
+    }
 
-  // 3. Registrar deuda en Cuenta Corriente (si es "A pagar" o "Cheque")
-  const generaDeuda = formaPago==="A pagar"||formaPago==="Cheque";
-  cuentaCorriente.unshift({
-    fecha, tipo:"Compra", proveedor, factura,
-    descripcion: `${lineasCompra.length} producto${lineasCompra.length>1?"s":""} · ${obs||factura||"Remito"}`,
-    importe: total,
-    formaPago,
-    compraId: compra.id
-  });
-  guardarLS("cc");
+    // 3. Registrar en Cuenta Corriente
+    const ccData={fecha, tipo:"Compra", proveedor, factura,
+      descripcion:lineasCompra.length+" producto"+(lineasCompra.length>1?"s":"")+" · "+(obs||factura||"Remito"),
+      importe:total, formaPago, compraId:compra.id};
+    const savedCC=await sbGuardar("cc",ccData);
+    cuentaCorriente.unshift(Object.assign({},ccData,savedCC||{}));
+    compras.unshift(compra);
+  }catch(e){ toast("Error guardando compra: "+e.message,"err"); return; }
 
   // 4. Limpiar formulario
   lineasCompra = [];
@@ -1758,17 +1792,19 @@ function verDetalleCompra(idx){
 
 function eliminarCompra(idx){
   const c = compras[idx];
-  confirmCb=()=>{
-    // Eliminar movimientos generados por esta compra
-    const obs = `Compra ${c.factura||"s/n"} · ${c.proveedor}`;
-    movimientos = movimientos.filter(m=>m.obs!==obs || m.fecha!==c.fecha);
-    guardarLS("movimientos");
-    // Eliminar entrada CC asociada
-    cuentaCorriente = cuentaCorriente.filter(m=>m.compraId!==c.id);
-    guardarLS("cc");
+  confirmCb=async()=>{
+    const obsStr="Compra "+(c.factura||"s/n")+" · "+c.proveedor;
+    // Eliminar movimientos en Supabase
+    const movsAElim=movimientos.filter(m=>m.obs===obsStr && m.fecha===c.fecha);
+    for(const m of movsAElim){ if(m.id) await sbGuardar("deleteMovimiento",m.id); }
+    movimientos=movimientos.filter(m=>!(m.obs===obsStr && m.fecha===c.fecha));
+    // Eliminar CC en Supabase
+    const ccAElim=cuentaCorriente.filter(m=>m.compraId===c.id);
+    for(const cc of ccAElim){ if(cc.id) await sbGuardar("deleteCc",cc.id); }
+    cuentaCorriente=cuentaCorriente.filter(m=>m.compraId!==c.id);
     // Eliminar compra
+    await sbGuardar("deleteCompra",c.id);
     compras.splice(idx,1);
-    guardarLS("compras");
     renderCompras(); renderMovimientos(); renderCC(); renderPanel(); renderStock(); renderAlertas();
     toast("Compra eliminada y movimientos revertidos.","ok");
   };
@@ -2086,7 +2122,7 @@ function asignarSkuML(i, val){
   renderMLPreview();
 }
 
-function confirmarImportML(){
+async function confirmarImportML(){
   const seleccionadas=mlLineasPreview.filter((_,i)=>document.getElementById('mlCheck'+i)?.checked);
   if(!seleccionadas.length){ toast('Seleccioná al menos una línea.','err'); return; }
 
@@ -2116,7 +2152,6 @@ function confirmarImportML(){
     });
     ok++;
   }
-  guardarLS('ventas'); guardarLS('movimientos');
   renderVentas(); renderPanel(); renderStock(); renderAlertas(); renderMovimientos();
   limpiarMLPaste();
   const partes=[];
@@ -2145,7 +2180,7 @@ function autocompletarVtSku(val){
   } else { info.innerHTML=''; }
 }
 
-function registrarVentaTienda(){
+async function registrarVentaTienda(){
   const fecha=document.getElementById('vtFecha').value;
   const sku=document.getElementById('vtSku').value.trim().toUpperCase();
   const cantidad=parseInt(document.getElementById('vtCantidad').value)||0;
@@ -2156,9 +2191,12 @@ function registrarVentaTienda(){
   const dep=p?calcularStockDeposito(sku):0;
   if(dep<cantidad){ toast(`Stock insuficiente en depósito propio (disponible: ${dep}).`,'err'); return; }
 
-  ventas.unshift({ fecha, canal:'Tienda', sku, producto:p?p.nombre:'', cantidad, precio, obs });
-  movimientos.unshift({ fecha, tipo:'Venta', sku, producto:p?p.nombre:'', cantidad, costo:p?p.costo:0, precio, obs:obs||'Venta Tienda', origen:'Tienda' });
-  guardarLS('ventas'); guardarLS('movimientos');
+  const vData={fecha, canal:'Tienda', sku, producto:p?p.nombre:'', cantidad, precio, ingresoBruto:cantidad*precio, totalNeto:cantidad*precio, obs};
+  const mData={fecha, tipo:'Venta', sku, producto:p?p.nombre:'', cantidad, costo:p?p.costo:0, precio, obs:obs||'Venta Tienda', origen:'Tienda'};
+  try{
+    const sv=await sbGuardar("venta",vData); ventas.unshift(Object.assign({},vData,sv||{}));
+    const sm=await sbGuardar("movimiento",mData); movimientos.unshift(Object.assign({},mData,sm||{}));
+  }catch(e){ toast("Error guardando venta: "+e.message,"err"); return; }
 
   // Limpiar
   ['vtSku','vtCantidad','vtPrecio','vtObs'].forEach(id=>document.getElementById(id).value='');
@@ -2213,14 +2251,13 @@ function renderVentas(){
 
 function eliminarVenta(idx){
   const v=ventas[idx];
-  confirmCb=()=>{
-    // Revertir movimiento asociado
-    const mIdx=movimientos.findIndex(m=>
-      m.fecha===v.fecha && m.sku===v.sku && m.tipo==='Venta' &&
-      m.origen===(v.canal==='ML'?'ML':'Tienda') && m.cantidad===v.cantidad
-    );
-    if(mIdx>=0){ movimientos.splice(mIdx,1); guardarLS('movimientos'); }
-    ventas.splice(idx,1); guardarLS('ventas');
+  confirmCb=async()=>{
+    const mIdx=movimientos.findIndex(function(m){
+      return m.fecha===v.fecha && m.sku===v.sku && m.tipo==='Venta' && m.cantidad===v.cantidad;
+    });
+    if(mIdx>=0){ const m=movimientos[mIdx]; if(m.id) await sbGuardar("deleteMovimiento",m.id); movimientos.splice(mIdx,1); }
+    if(v.id) await sbGuardar("deleteVenta",v.id);
+    ventas.splice(idx,1);
     renderVentas(); renderPanel(); renderStock(); renderAlertas(); renderMovimientos();
     toast('Venta eliminada y movimiento revertido.','ok');
   };
@@ -2320,18 +2357,15 @@ function parseCsvLine(line){
 // RESET TOTAL
 // ================================================================
 function resetTotal(){
-  confirmCb=()=>{
-    // Borrar todas las claves del sistema
-    Object.values(LS).forEach(key=>localStorage.removeItem(key));
-    // Borrar también la clave vieja del index.html
-    localStorage.removeItem("origo_productos");
-    // Resetear estado en memoria
+  confirmCb=async()=>{
+    mostrarCargando(true);
+    try{ await sbGuardar("reset",null); }catch(e){ toast("Error al resetear: "+e.message,"err"); mostrarCargando(false); return; }
     productos=[]; movimientos=[]; cuentaCorriente=[];
     stockML={}; compras=[]; ventas=[]; lineasCompra=[]; mlLineasPreview=[];
-    // Re-renderizar todo
     actualizarProvLists(); actualizarSkuList(); actualizarSkuListCompras();
     renderPanel(); renderProductos(); renderStock(); renderAlertas();
     renderMovimientos(); renderCC(); renderCompras(); renderVentas(); renderAnalisis();
+    mostrarCargando(false);
     toast("✅ Todo reseteado. Sistema en blanco.", "ok", 4000);
   };
   document.getElementById("confirmBtn").textContent = "Sí, borrar todo";
