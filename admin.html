@@ -712,7 +712,7 @@ tr:hover td{background:#fafbfc;}
                 </div>
                 <div class="table-wrap" style="max-height:400px;overflow-y:auto;">
                   <table>
-                    <thead><tr><th>Fecha</th><th>SKU</th><th>Título ML</th><th>Cant.</th><th>Precio unit. ($)</th><th>Neto ($)</th><th>Estado</th><th>Producto catálogo</th><th>✓</th></tr></thead>
+                    <thead><tr><th>Fecha</th><th>SKU</th><th>Título ML</th><th>Cant.</th><th>Precio unit. ($)</th><th>Ingreso ($)</th><th>Neto ($)</th><th>Estado</th><th>Producto catálogo</th><th>✓</th></tr></thead>
                     <tbody id="mlPreviewBody"></tbody>
                   </table>
                 </div>
@@ -782,7 +782,7 @@ tr:hover td{background:#fafbfc;}
             </div>
             <div class="table-wrap">
               <table>
-                <thead><tr><th>Fecha</th><th>Canal</th><th>SKU</th><th>Producto</th><th>Cant.</th><th>Precio unit. ($)</th><th>Total ($)</th><th>Obs.</th><th></th></tr></thead>
+                <thead><tr><th>Fecha</th><th>Canal</th><th>SKU</th><th>Producto</th><th>Cant.</th><th>Precio unit. ($)</th><th>Ingreso ($)</th><th>Neto ($)</th><th>Obs.</th><th></th></tr></thead>
                 <tbody id="ventasBody"></tbody>
               </table>
               <div class="empty" id="ventasEmpty" style="display:none;"><div class="icon">💸</div><p>Sin ventas registradas todavía.</p></div>
@@ -1880,7 +1880,7 @@ function procesarArchivoML(input){
 }
 
 function procesarRowsML(rows){
-  // Encontrar fila header (buscar "# de venta" o "Fecha de venta")
+  // Encontrar fila header
   let headerIdx=-1;
   for(let i=0;i<Math.min(rows.length,10);i++){
     const r=rows[i].map(v=>String(v).toLowerCase());
@@ -1890,38 +1890,91 @@ function procesarRowsML(rows){
   }
 
   mlLineasPreview=[];
-  const dataStart=headerIdx>=0?headerIdx+1:6; // fallback a fila 6
+  const dataStart=headerIdx>=0?headerIdx+1:6;
 
+  // Primer pasada: recopilar ratio de paquetes madre
+  // ratioCarrito[nroVenta] = ratio neto/bruto de la fila madre
+  const ratioCarrito={};
+  for(let i=dataStart;i<rows.length;i++){
+    const row=rows[i];
+    if(!row||!row.length) continue;
+    const estado=String(row[ML_COLS.estado]||'').trim().toLowerCase();
+    const nroVenta=String(row[ML_COLS.nroVenta]||'').trim();
+    if(estado.startsWith('paquete de') && nroVenta.length>=5){
+      const ingresosBrutos=parseFloat(String(row[ML_COLS.ingresosBrutos]||'').replace(/[^0-9.,-]/g,''))||0;
+      const totalNeto=parseFloat(String(row[ML_COLS.total]||'').replace(/[^0-9.,-]/g,''))||0;
+      if(ingresosBrutos>0){
+        ratioCarrito[nroVenta]=totalNeto/ingresosBrutos;
+      }
+    }
+  }
+
+  // Segunda pasada: procesar líneas de venta
   for(let i=dataStart;i<rows.length;i++){
     const row=rows[i];
     if(!row||!row.length) continue;
 
     const nroVenta=String(row[ML_COLS.nroVenta]||'').trim();
     const estado=String(row[ML_COLS.estado]||'').trim();
+    const estadoLow=estado.toLowerCase();
     const skuRaw=String(row[ML_COLS.sku]||'').trim();
     const titulo=String(row[ML_COLS.titulo]||'').trim();
     const cantRaw=row[ML_COLS.unidades];
     const precioUnitRaw=row[ML_COLS.precioUnit];
+    const ingresosBrutosRaw=row[ML_COLS.ingresosBrutos];
     const totalRaw=row[ML_COLS.total];
     const fechaRaw=String(row[ML_COLS.fecha]||'').trim();
 
-    // Ignorar filas madre de paquetes (no tienen SKU propio)
-    if(estado.toLowerCase().startsWith('paquete de')) continue;
-    // Ignorar filas vacías
+    // Ignorar filas madre de paquetes
+    if(estadoLow.startsWith('paquete de')) continue;
+    // Ignorar filas sin número de venta válido
     if(!nroVenta||nroVenta.length<5) continue;
 
     const cantidad=parseInt(cantRaw)||1;
-    const precioUnit=parseFloat(String(precioUnitRaw).replace(/[^0-9.,]/g,'').replace(',','.'))||0;
-    const totalNeto=parseFloat(String(totalRaw).replace(/[^0-9.,-]/g,''))||0;
+    const precioUnit=parseFloat(String(precioUnitRaw||'').replace(/[^0-9.,]/g,'').replace(',','.'))||0;
     const fecha=parsearFechaML(fechaRaw);
     const sku=skuRaw.toUpperCase();
+
+    // Calcular ingreso bruto y neto
+    let ingresoBruto=parseFloat(String(ingresosBrutosRaw||'').replace(/[^0-9.,-]/g,''))||0;
+    let totalNeto=parseFloat(String(totalRaw||'').replace(/[^0-9.,-]/g,''))||0;
+
+    // Filas hijas de carrito: Ingresos y Total son NaN/vacío
+    // → calcular desde precio × cantidad y aplicar ratio de la madre
+    if(!ingresoBruto && precioUnit>0){
+      ingresoBruto=precioUnit*cantidad;
+      // Buscar ratio del carrito al que pertenece esta línea
+      // Las hijas tienen el MISMO nroVenta que fue registrado en ratioCarrito
+      // pero pueden tener nroVenta diferente (número de sub-orden)
+      // Buscar cualquier ratio disponible: primero por nroVenta exacto, 
+      // si no, usar el ratio de la fila madre más cercana anterior
+      let ratio=ratioCarrito[nroVenta];
+      if(!ratio){
+        // Buscar ratio de la última madre procesada antes de esta fila
+        for(let j=i-1;j>=dataStart;j--){
+          const prevRow=rows[j];
+          if(!prevRow) continue;
+          const prevEstado=String(prevRow[ML_COLS.estado]||'').toLowerCase();
+          const prevNro=String(prevRow[ML_COLS.nroVenta]||'').trim();
+          if(prevEstado.startsWith('paquete de') && ratioCarrito[prevNro]){
+            ratio=ratioCarrito[prevNro];
+            break;
+          }
+        }
+      }
+      // Aplicar ratio si encontrado, si no usar porcentaje típico ML (~67%)
+      totalNeto=ingresoBruto*(ratio||0.67);
+    }
 
     // Buscar en catálogo
     const prod=productos.find(p=>p.sku.toUpperCase()===sku);
 
     mlLineasPreview.push({
       fecha, nroVenta, estado, sku, titulo,
-      cantidad, precioUnit, totalNeto,
+      cantidad, precioUnit,
+      ingresoBruto,
+      totalNeto,
+      esCarrito: !parseFloat(String(ingresosBrutosRaw||'').replace(/[^0-9.,-]/g,'')),
       producto:prod?prod.nombre:'',
       enCatalogo:!!prod
     });
@@ -1975,7 +2028,7 @@ function renderMLPreview(){
     (sinCat?` &nbsp;·&nbsp; <span style="color:var(--orange);">⚠️ ${sinCat} SKU no encontrado</span>`:'');
 
   document.getElementById('mlPreviewBody').innerHTML=mlLineasPreview.map((l,i)=>`
-    <tr style="${!l.enCatalogo?'background:#fff7ed;':''}">
+    <tr style="${!l.enCatalogo?'background:#fff7ed;':l.esCarrito?'background:#f0f9ff;':''}">
       <td style="font-size:12px;">${l.fecha}</td>
       <td>
         ${l.enCatalogo
@@ -1983,11 +2036,13 @@ function renderMLPreview(){
           : `<input type="text" list="skuList" placeholder="SKU" style="width:100px;padding:4px 7px;border:1.5px solid var(--border);border-radius:5px;font-size:12px;"
                value="${esc(l.sku)}" onchange="asignarSkuML(${i},this.value)">`
         }
+        ${l.esCarrito?`<span class="badge badge-blue" style="font-size:10px;margin-left:3px;">carrito</span>`:''}
       </td>
       <td style="max-width:160px;font-size:11px;color:var(--text-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${esc(l.titulo)}">${esc(l.titulo||'—')}</td>
       <td class="num">${l.cantidad}</td>
       <td class="num">$${fmt(l.precioUnit)}</td>
-      <td class="num ${l.totalNeto>0?'num-pos':''}">${l.totalNeto?'$'+fmt(l.totalNeto):'—'}</td>
+      <td class="num">$${fmt(l.ingresoBruto)}</td>
+      <td class="num num-pos">$${fmt(l.totalNeto)}</td>
       <td style="font-size:11px;max-width:130px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(l.estado)}</td>
       <td style="font-size:12px;">${l.enCatalogo?esc(l.producto):`<span style="color:var(--orange);">No encontrado</span>`}</td>
       <td style="text-align:center;">
@@ -2000,9 +2055,10 @@ function renderMLPreview(){
 function actualizarResumenML(){
   const sel=mlLineasPreview.filter((_,i)=>document.getElementById('mlCheck'+i)?.checked);
   const totalUnid=sel.reduce((a,l)=>a+l.cantidad,0);
-  const totalNeto=sel.filter(l=>l.totalNeto).reduce((a,l)=>a+l.totalNeto,0);
+  const totalBruto=sel.reduce((a,l)=>a+(l.ingresoBruto||0),0);
+  const totalNeto=sel.reduce((a,l)=>a+(l.totalNeto||0),0);
   document.getElementById('mlResumenFinal').innerHTML=
-    `<strong>${sel.length}</strong> líneas seleccionadas · <strong>${totalUnid}</strong> unidades · Neto total: <strong>$${fmt(totalNeto)}</strong>`;
+    `<strong>${sel.length}</strong> líneas · <strong>${totalUnid}</strong> unidades · Ingreso: <strong>$${fmt(totalBruto)}</strong> · Neto: <strong>$${fmt(totalNeto)}</strong>`;
 }
 
 function toggleSelectAllML(checked){
@@ -2034,8 +2090,11 @@ function confirmarImportML(){
     ventas.unshift({
       fecha:l.fecha, canal:'ML', sku:l.sku,
       producto:l.producto||l.titulo, cantidad:l.cantidad,
-      precio:l.precioUnit, totalNeto:l.totalNeto,
-      nroVenta:l.nroVenta, obs:'Importado ML'
+      precio:l.precioUnit,
+      ingresoBruto:l.ingresoBruto||l.precioUnit*l.cantidad,
+      totalNeto:l.totalNeto,
+      esCarrito:l.esCarrito||false,
+      nroVenta:l.nroVenta, obs:l.esCarrito?'Importado ML (carrito)':'Importado ML'
     });
     movimientos.unshift({
       fecha:l.fecha, tipo:'Venta', sku:l.sku,
@@ -2122,7 +2181,7 @@ function renderVentas(){
   }).join('');
 
   // Stats
-  const totalML=ventas.filter(v=>v.canal==='ML').reduce((a,v)=>a+v.cantidad*v.precio,0);
+  const totalML=ventas.filter(v=>v.canal==='ML').reduce((a,v)=>a+(v.totalNeto||v.ingresoBruto||v.cantidad*v.precio),0);
   const totalTienda=ventas.filter(v=>v.canal==='Tienda').reduce((a,v)=>a+v.cantidad*v.precio,0);
   const unidML=ventas.filter(v=>v.canal==='ML').reduce((a,v)=>a+v.cantidad,0);
   const unidTienda=ventas.filter(v=>v.canal==='Tienda').reduce((a,v)=>a+v.cantidad,0);
