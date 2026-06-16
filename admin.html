@@ -361,6 +361,7 @@ tr:hover td{background:#fafbfc;}
             <div class="toolbar">
               <input class="search-input" type="text" placeholder="Buscar SKU o nombre…" oninput="filtrarProductos(this.value)">
               <button class="btn btn-primary" onclick="abrirModalProducto()">+ Agregar producto</button>
+              <button class="btn btn-danger" id="btnElimSel" onclick="eliminarSeleccionados()" style="display:none;">🗑️ Eliminar seleccionados (<span id="selCount">0</span>)</button>
               <button class="btn btn-ghost" onclick="exportarCSV()" title="Descargar catálogo como CSV">⬇️ Exportar CSV</button>
               <label class="btn btn-ghost" style="cursor:pointer;" title="Importar desde CSV">
                 ⬆️ Importar CSV
@@ -370,7 +371,7 @@ tr:hover td{background:#fafbfc;}
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Img</th><th>SKU</th><th>Producto</th><th>Proveedor</th><th>Costo ($)</th><th>Precio ML ($)</th><th>Precio Tienda ($)</th><th>Margen %</th><th>Stock Mín</th><th>Tienda</th><th>Acciones</th></tr></thead>
+              <thead><tr><th style="width:32px;"><input type="checkbox" id="checkAll" onchange="toggleCheckAll(this.checked)" style="width:15px;height:15px;cursor:pointer;"></th><th>Img</th><th>SKU</th><th>Producto</th><th>Proveedor</th><th>Costo ($)</th><th>Precio ML ($)</th><th>Precio Tienda ($)</th><th>Margen %</th><th>Stock Mín</th><th>Tienda</th><th>Acciones</th></tr></thead>
               <tbody id="productosBody"></tbody>
             </table>
             <div class="empty" id="productosEmpty" style="display:none;"><div class="icon">📦</div><p>No hay productos que coincidan.</p></div>
@@ -1225,6 +1226,7 @@ function renderProductos(){
       ? `<img class="thumb" src="${p.img}" alt="" onerror="this.style.display='none'">`
       : `<div class="no-thumb">sin img</div>`;
     return `<tr>
+      <td style="text-align:center;"><input type="checkbox" class="prod-check" data-sku="${esc(p.sku)}" onchange="actualizarSeleccion()" style="width:15px;height:15px;cursor:pointer;"></td>
       <td>${thumb}</td>
       <td><span class="sku-tag">${esc(p.sku)}</span></td>
       <td style="max-width:180px;">${esc(p.nombre)}</td>
@@ -1897,12 +1899,13 @@ function vtab(id){
 }
 
 // ── ML Importador ──
-// Columnas fijas del reporte ML (fila 5, índice 0)
-const ML_COLS = {
-  nroVenta:0, fecha:1, estado:2, unidades:6,
-  ingresosBrutos:7, total:18, sku:22, canal:24,
-  titulo:25, precioUnit:27
-};
+// Columnas del reporte ML — detectadas automáticamente según versión del reporte
+// v1 (viejo): sku=22, titulo=25, precioUnit=27, total=18
+// v2 (nuevo): sku=23, titulo=26, precioUnit=28, total=19
+// Se detecta automáticamente en procesarRowsML()
+const ML_COLS_V1 = { nroVenta:0, fecha:1, estado:2, esCarrito:4, unidades:6, ingresosBrutos:7, total:18, sku:22, canal:24, titulo:25, precioUnit:27 };
+const ML_COLS_V2 = { nroVenta:0, fecha:1, estado:2, esCarrito:4, unidades:6, ingresosBrutos:7, total:19, sku:23, canal:25, titulo:26, precioUnit:28 };
+let ML_COLS = ML_COLS_V2; // default al formato nuevo
 const MESES_ES = {enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12};
 
 function procesarArchivoML(input){
@@ -1934,6 +1937,43 @@ function procesarArchivoML(input){
   input.value='';
 }
 
+function detectarVersionML(rows, dataStart){
+  // Detectar versión del reporte según contenido de fila header o datos
+  // v2 tiene "Paquete de varios productos" en col 4
+  const header = rows[dataStart-1]||[];
+  const h = header.map(v=>String(v||'').toLowerCase());
+  // Col 4 en v2 = "paquete de varios productos"
+  if(h[4]&&h[4].includes('paquete')) return ML_COLS_V2;
+  // Col 4 en v1 suele ser vacío o diferente
+  // También detectar por datos: en v1 col 22 tiene SKU, en v2 col 23
+  for(let i=dataStart;i<Math.min(dataStart+5,rows.length);i++){
+    const row=rows[i];
+    if(!row) continue;
+    const sku22=String(row[22]||'').trim();
+    const sku23=String(row[23]||'').trim();
+    // SKU suele ser corto alfanumérico
+    if(sku23 && sku23.length<20 && /^[A-Z0-9 +-]+$/i.test(sku23)) return ML_COLS_V2;
+    if(sku22 && sku22.length<20 && /^[A-Z0-9 +-]+$/i.test(sku22)) return ML_COLS_V1;
+  }
+  return ML_COLS_V2;
+}
+
+// Estados que NO son ventas reales
+function esEstadoIgnorar(estado){
+  const e=estado.toLowerCase().trim();
+  if(e.startsWith('paquete de')) return true;
+  if(e.startsWith('paquete cancelado')) return true;
+  if(e.startsWith('cancelad')) return true;
+  if(e.startsWith('venta cancelada')) return true;
+  if(e.startsWith('devoluci')) return true;
+  if(e.startsWith('devuelto')) return true;
+  if(e.startsWith('mediac')) return true;
+  if(e.startsWith('reclamo')) return true;
+  if(e.startsWith('en devoluci')) return true;
+  if(e.startsWith('te dimos el dinero del producto')) return true;
+  return false;
+}
+
 function procesarRowsML(rows){
   // Encontrar fila header
   let headerIdx=-1;
@@ -1943,105 +1983,100 @@ function procesarRowsML(rows){
       headerIdx=i; break;
     }
   }
-
-  mlLineasPreview=[];
   const dataStart=headerIdx>=0?headerIdx+1:6;
 
-  // Primer pasada: recopilar ratio de paquetes madre
-  // ratioCarrito[nroVenta] = ratio neto/bruto de la fila madre
+  // Auto-detectar versión del reporte
+  ML_COLS = detectarVersionML(rows, dataStart);
+
+  mlLineasPreview=[];
+  let ignoradas=0;
+
+  // Primer pasada: ratio de filas madre de paquetes
   const ratioCarrito={};
+  // También guardamos la fecha de la madre por nroVenta (las hijas no tienen fecha propia)
+  const fechaMadre={};
   for(let i=dataStart;i<rows.length;i++){
     const row=rows[i];
     if(!row||!row.length) continue;
     const estado=String(row[ML_COLS.estado]||'').trim().toLowerCase();
     const nroVenta=String(row[ML_COLS.nroVenta]||'').trim();
     if(estado.startsWith('paquete de') && nroVenta.length>=5){
-      const ingresosBrutos=parseFloat(String(row[ML_COLS.ingresosBrutos]||'').replace(/[^0-9.,-]/g,''))||0;
-      const totalNeto=parseFloat(String(row[ML_COLS.total]||'').replace(/[^0-9.,-]/g,''))||0;
-      if(ingresosBrutos>0){
-        ratioCarrito[nroVenta]=totalNeto/ingresosBrutos;
-      }
+      const ib=parseFloat(String(row[ML_COLS.ingresosBrutos]||'').replace(/[^0-9.,-]/g,''))||0;
+      const tn=parseFloat(String(row[ML_COLS.total]||'').replace(/[^0-9.,-]/g,''))||0;
+      if(ib>0) ratioCarrito[nroVenta]=tn/ib;
+      fechaMadre[nroVenta]=String(row[ML_COLS.fecha]||'').trim();
     }
   }
 
-  // Segunda pasada: procesar líneas de venta
+  // Último ratio y fecha de paquete madre visto (para hijas sin nroVenta de madre)
+  let lastRatio=0.67, lastFechaMadre='';
+
+  // Segunda pasada: procesar ventas
   for(let i=dataStart;i<rows.length;i++){
     const row=rows[i];
     if(!row||!row.length) continue;
 
     const nroVenta=String(row[ML_COLS.nroVenta]||'').trim();
+    if(!nroVenta||nroVenta.length<5) continue;
+
     const estado=String(row[ML_COLS.estado]||'').trim();
-    const estadoLow=estado.toLowerCase();
+
+    // Actualizar lastRatio si es fila madre
+    if(estado.toLowerCase().startsWith('paquete de')){
+      if(ratioCarrito[nroVenta]) lastRatio=ratioCarrito[nroVenta];
+      if(fechaMadre[nroVenta]) lastFechaMadre=fechaMadre[nroVenta];
+      continue; // no procesar la madre
+    }
+
+    // Ignorar estados no válidos
+    if(esEstadoIgnorar(estado)){ ignoradas++; continue; }
+
     const skuRaw=String(row[ML_COLS.sku]||'').trim();
     const titulo=String(row[ML_COLS.titulo]||'').trim();
     const cantRaw=row[ML_COLS.unidades];
     const precioUnitRaw=row[ML_COLS.precioUnit];
-    const ingresosBrutosRaw=row[ML_COLS.ingresosBrutos];
+    const ingresoBrutoRaw=row[ML_COLS.ingresosBrutos];
     const totalRaw=row[ML_COLS.total];
-    const fechaRaw=String(row[ML_COLS.fecha]||'').trim();
+    const esCarritoRaw=String(row[ML_COLS.esCarrito]||'').trim().toLowerCase();
+    let fechaRaw=String(row[ML_COLS.fecha]||'').trim();
 
-    // Ignorar filas madre de paquetes
-    if(estadoLow.startsWith('paquete de')) continue;
-    // Ignorar filas sin número de venta válido
-    if(!nroVenta||nroVenta.length<5) continue;
+    // Filas hijas de paquete no tienen fecha propia → usar la de la madre
+    if(!fechaRaw||fechaRaw.length<5) fechaRaw=lastFechaMadre;
 
     const cantidad=parseInt(cantRaw)||1;
     const precioUnit=parseFloat(String(precioUnitRaw||'').replace(/[^0-9.,]/g,'').replace(',','.'))||0;
     const fecha=parsearFechaML(fechaRaw);
-    const sku=skuRaw.toUpperCase();
+    const sku=skuRaw.toUpperCase().trim();
+    if(!sku) continue;
 
-    // Calcular ingreso bruto y neto
-    let ingresoBruto=parseFloat(String(ingresosBrutosRaw||'').replace(/[^0-9.,-]/g,''))||0;
+    let ingresoBruto=parseFloat(String(ingresoBrutoRaw||'').replace(/[^0-9.,-]/g,''))||0;
     let totalNeto=parseFloat(String(totalRaw||'').replace(/[^0-9.,-]/g,''))||0;
 
-    // Filas hijas de carrito: Ingresos y Total son NaN/vacío
-    // → calcular desde precio × cantidad y aplicar ratio de la madre
+    // Filas hijas (sin ingresoBruto): calcular con precio y ratio de la madre
     if(!ingresoBruto && precioUnit>0){
       ingresoBruto=precioUnit*cantidad;
-      // Buscar ratio del carrito al que pertenece esta línea
-      // Las hijas tienen el MISMO nroVenta que fue registrado en ratioCarrito
-      // pero pueden tener nroVenta diferente (número de sub-orden)
-      // Buscar cualquier ratio disponible: primero por nroVenta exacto, 
-      // si no, usar el ratio de la fila madre más cercana anterior
-      let ratio=ratioCarrito[nroVenta];
-      if(!ratio){
-        // Buscar ratio de la última madre procesada antes de esta fila
-        for(let j=i-1;j>=dataStart;j--){
-          const prevRow=rows[j];
-          if(!prevRow) continue;
-          const prevEstado=String(prevRow[ML_COLS.estado]||'').toLowerCase();
-          const prevNro=String(prevRow[ML_COLS.nroVenta]||'').trim();
-          if(prevEstado.startsWith('paquete de') && ratioCarrito[prevNro]){
-            ratio=ratioCarrito[prevNro];
-            break;
-          }
-        }
-      }
-      // Aplicar ratio si encontrado, si no usar porcentaje típico ML (~67%)
-      totalNeto=ingresoBruto*(ratio||0.67);
+      // Buscar ratio: por nroVenta exacto, luego último ratio visto
+      const ratio=ratioCarrito[nroVenta]||lastRatio;
+      totalNeto=ingresoBruto*ratio;
     }
 
-    // Buscar en catálogo
+    const esCarrito=esCarritoRaw==='sí'||esCarritoRaw==='si'||esCarritoRaw==='yes';
     const prod=productos.find(p=>p.sku.toUpperCase()===sku);
-
-    // Detectar si ya fue importada (mismo nroVenta + sku en ventas guardadas)
     const yaImportada=ventas.some(v=>
-      v.nroVenta===nroVenta && v.sku.toUpperCase()===sku.toUpperCase() && v.canal==='ML'
+      v.nroVenta===nroVenta && v.sku.toUpperCase()===sku && v.canal==='ML'
     );
 
     mlLineasPreview.push({
       fecha, nroVenta, estado, sku, titulo,
-      cantidad, precioUnit,
-      ingresoBruto,
-      totalNeto,
-      esCarrito: !parseFloat(String(ingresosBrutosRaw||'').replace(/[^0-9.,-]/g,'')),
-      yaImportada,
+      cantidad, precioUnit, ingresoBruto, totalNeto,
+      esCarrito, yaImportada,
       producto:prod?prod.nombre:'',
       enCatalogo:!!prod
     });
   }
 
   if(!mlLineasPreview.length){ toast('No se encontraron líneas de ventas en el archivo.','err'); return; }
+  if(ignoradas>0) console.log('Filas ignoradas (canceladas/devoluciones):', ignoradas);
   renderMLPreview();
 }
 
@@ -2294,19 +2329,63 @@ function eliminarVenta(idx){
 }
 
 
+// ── Selección múltiple catálogo ──
+function actualizarSeleccion(){
+  const checks = document.querySelectorAll(".prod-check");
+  const sel = [...checks].filter(c=>c.checked);
+  const btn = document.getElementById("btnElimSel");
+  const cnt = document.getElementById("selCount");
+  if(btn){ btn.style.display = sel.length?"inline-block":"none"; }
+  if(cnt){ cnt.textContent = sel.length; }
+  // Actualizar checkAll
+  const all = document.getElementById("checkAll");
+  if(all){ all.checked = sel.length===checks.length && checks.length>0;
+           all.indeterminate = sel.length>0 && sel.length<checks.length; }
+}
+
+function toggleCheckAll(checked){
+  document.querySelectorAll(".prod-check").forEach(c=>c.checked=checked);
+  actualizarSeleccion();
+}
+
+async function eliminarSeleccionados(){
+  const skus = [...document.querySelectorAll(".prod-check:checked")].map(c=>c.dataset.sku);
+  if(!skus.length){ toast("No hay productos seleccionados.","err"); return; }
+  confirmCb=async()=>{
+    mostrarCargando(true);
+    for(const sku of skus){
+      try{ await sbGuardar("deleteProd",sku); }catch(e){ console.error(e); }
+      const i=productos.findIndex(p=>p.sku===sku);
+      if(i>=0) productos.splice(i,1);
+    }
+    mostrarCargando(false);
+    renderProductos(); renderPanel(); renderStock(); renderAlertas(); renderAnalisis();
+    actualizarSeleccion();
+    toast(skus.length+" producto"+(skus.length!==1?"s":"")+" eliminado"+(skus.length!==1?"s":"")+" ✅","ok");
+  };
+  document.getElementById("confirmBtn").textContent="Eliminar "+skus.length+" producto"+(skus.length!==1?"s":"");
+  document.getElementById("confirmBtn").style.background="var(--red)";
+  document.getElementById("confirmMsg").innerHTML=
+    "<strong>¿Eliminar "+skus.length+" producto"+(skus.length!==1?"s":"")+"?</strong><br><br>"+
+    "<span style='font-size:12px;color:var(--text-soft);'>"+skus.map(s=>"<span class='sku-tag'>"+esc(s)+"</span>").join(" ")+"</span><br><br>"+
+    "<span style='font-size:12px;color:var(--red);'>Esta acción no se puede deshacer.</span>";
+  document.getElementById("modalConfirm").classList.add("show");
+}
+
+
 // ================================================================
 // IMPORTAR / EXPORTAR CSV
 // ================================================================
 function exportarCSV(){
-  const cols = ["sku","nombre","proveedor","categoria","costo","precio","precioTienda","stockMin","stockOn"];
-  const headers = ["SKU","Nombre","Proveedor","Categoría","Costo ($)","Precio ML ($)","Precio Tienda ($)","Stock Mín","Tienda (1=visible)"];
+  const cols = ["sku","nombre","proveedor","categoria","costo","precio","precioTienda","stockMin","stockOn","img"];
+  const headers = ["SKU","Nombre","Proveedor","Categoría","Costo ($)","Precio ML ($)","Precio Tienda ($)","Stock Mín","Tienda (1=visible)","Imagen (URL)"];
   const rows = productos.map(p=>cols.map(c=>{
     const v = p[c]??""
     // Escapar comas y comillas en strings
     return typeof v==="string" && (v.includes(",") || v.includes('"') || v.includes("\n"))
       ? `"${v.replace(/"/g,'""')}"` : v;
-  }).join(","));
-  const csv = [headers.join(","), ...rows].join("\n");
+  }).join(";"));
+  const csv = [headers.join(";"), ...rows].join("\n");
   const blob = new Blob(["\uFEFF"+csv], {type:"text/csv;charset=utf-8;"});
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -2315,56 +2394,82 @@ function exportarCSV(){
   toast("CSV exportado ✅","ok");
 }
 
-function importarCSV(input){
+function limpiarNumCSV(val){
+  // Limpia "$ 8.685,00" → 8685 | "8685.00" → 8685
+  let s=String(val||"").replace(/\$/g,"").replace(/\s/g,"").trim();
+  if(s.includes(",")&&s.includes(".")){
+    // Formato argentino: punto=miles, coma=decimal
+    s=s.replace(/\./g,"").replace(",",".");
+  } else if(s.includes(",")&&!s.includes(".")){
+    s=s.replace(",",".");
+  }
+  return parseFloat(s)||0;
+}
+
+async function importarCSV(input){
   const file = input.files[0]; if(!file) return;
   const reader = new FileReader();
-  reader.onload = e=>{
-    const text = e.target.result.replace(/^﻿/,""); // quitar BOM
+  reader.onload = async e=>{
+    const text = e.target.result.replace(/^\uFEFF/,"");
     const lines = text.split(/\r?\n/).filter(l=>l.trim());
     if(lines.length < 2){ toast("El CSV está vacío o no tiene datos.","err"); return; }
 
-    // Detectar columnas desde el header
-    const header = parseCsvLine(lines[0]).map(h=>h.trim().toLowerCase());
+    // Auto-detectar separador: ; o ,
+    const sep = lines[0].split(";").length > lines[0].split(",").length ? ";" : ",";
+    const splitLine = (line) => sep===";"
+      ? line.split(";").map(v=>v.trim())
+      : parseCsvLine(line);
+
+    const header = splitLine(lines[0]).map(h=>h.trim().toLowerCase());
     const get = (row, ...names)=>{
       for(const n of names){
         const i = header.findIndex(h=>h.includes(n));
-        if(i>=0) return row[i]??""
+        if(i>=0) return (row[i]??"").toString().trim();
       }
       return "";
     };
 
     let nuevos=0, actualizados=0, errores=[];
-    for(let i=1;i<lines.length;i++){
-      const row = parseCsvLine(lines[i]);
-      if(!row.length || !row[0]) continue;
-      const sku = (get(row,"sku")||"").toString().trim().toUpperCase();
-      const nombre = (get(row,"nombre")||"").toString().trim();
-      if(!sku){ errores.push(`Fila ${i+1}: sin SKU`); continue; }
+    const promises=[];
 
+    for(let i=1;i<lines.length;i++){
+      const row = splitLine(lines[i]);
+      if(!row.length || !row[0]) continue;
+      const sku = get(row,"sku").toUpperCase();
+      const nombre = get(row,"nombre");
+      if(!sku){ errores.push("Fila "+(i+1)+": sin SKU"); continue; }
+
+      const imgCSV = get(row,"imagen","img","image","url").trim();
+      const existing = productos.find(p=>p.sku===sku);
       const obj = {
         sku, nombre,
-        proveedor:(get(row,"proveedor")||"").toString().trim().toUpperCase(),
-        categoria:(get(row,"categ")||"").toString().trim(),
-        costo:parseFloat(get(row,"costo"))||0,
-        precio:parseFloat(get(row,"precio ml","precio_ml","precioml","precio"))||0,
-        precioTienda:parseFloat(get(row,"tienda","precio_tienda","precioTienda"))||0,
-        stockMin:parseInt(get(row,"stock mín","stock min","stockmin","mín"))||15,
-        stockOn:parseInt(get(row,"tienda (1","stocking","stockon")??1),
-        img:""
+        proveedor: get(row,"proveedor").toUpperCase(),
+        categoria: get(row,"categ"),
+        costo:       limpiarNumCSV(get(row,"costo")),
+        precio:      limpiarNumCSV(get(row,"precio ml","precio_ml","precioml")),
+        precioTienda:limpiarNumCSV(get(row,"precio tienda","precio_tienda","preciotienda")),
+        stockMin:    parseInt(get(row,"stock m","mín","min","stockmin"))||15,
+        stockOn:     parseInt(get(row,"tienda (1","stockon")||"1"),
+        // Imagen: usar la del CSV si viene, si no preservar la existente
+        img: imgCSV || (existing?existing.img||"":"")
       };
-      // Preservar imagen si ya existe
-      const existing = productos.find(p=>p.sku===sku);
-      if(existing){ obj.img=existing.img||""; Object.assign(existing,obj); actualizados++; }
+
+      if(existing){ Object.assign(existing,obj); actualizados++; }
       else { productos.push(obj); nuevos++; }
+      promises.push(sbGuardar("producto",obj).catch(err=>errores.push(sku+": "+err.message)));
     }
-    guardarLS("productos");
+
+    mostrarCargando(true);
+    await Promise.all(promises);
+    mostrarCargando(false);
+
     actualizarProvLists(); actualizarSkuList(); actualizarSkuListCompras();
     renderProductos(); renderPanel(); renderStock(); renderAlertas(); renderAnalisis();
-    const msg = `Importación lista: ${nuevos} nuevo${nuevos!==1?"s":""}, ${actualizados} actualizado${actualizados!==1?"s":""}${errores.length?" · "+errores.length+" con error":""}`;
+    const msg = "Importación lista: "+nuevos+" nuevo"+(nuevos!==1?"s":"")+", "+actualizados+" actualizado"+(actualizados!==1?"s":"")+(errores.length?" · "+errores.length+" con error":"");
     toast(msg, errores.length?"":"ok", 5000);
-    input.value=""; // resetear input
+    input.value="";
   };
-  reader.readAsText(file, "UTF-8");
+  reader.readAsText(file, "latin-1"); // soporta caracteres especiales
 }
 
 function parseCsvLine(line){
