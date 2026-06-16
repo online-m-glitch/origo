@@ -1430,7 +1430,10 @@ function autocompletarMovSku(val){
   document.getElementById("mPrecioInfo").textContent=p?`$${fmt(p.precio)}`:"—";
 }
 function actualizarSkuList(){
-  document.getElementById("skuList").innerHTML=productos.map(p=>`<option value="${esc(p.sku)}">`).join("");
+  const opts=productos.map(p=>`<option value="${esc(p.sku)}">`).join("");
+  document.getElementById("skuList").innerHTML=opts;
+  const vt=document.getElementById("vtSkuList");
+  if(vt) vt.innerHTML=opts;
 }
 async function registrarMovimiento(){
   const fecha=document.getElementById("mFecha").value;
@@ -1888,7 +1891,7 @@ function vtab(id){
     }
   });
   if(id==='tienda'){
-    document.getElementById('vtSkuList').innerHTML=productos.map(p=>`<option value="${esc(p.sku)}">`).join('');
+    actualizarSkuList();
   }
   if(id==='historial') renderVentas();
 }
