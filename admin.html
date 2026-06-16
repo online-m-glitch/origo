@@ -2143,31 +2143,39 @@ async function confirmarImportML(){
   if(!seleccionadas.length){ toast('Seleccioná al menos una línea.','err'); return; }
 
   let ok=0, warn=0, dupl=0;
+  mostrarCargando(true);
   for(const l of seleccionadas){
     if(!l.sku){ warn++; continue; }
-    // Verificar de nuevo al momento de confirmar (por si se importó en otra sesión)
     const yaExiste=ventas.some(v=>
       v.nroVenta===l.nroVenta && v.sku.toUpperCase()===l.sku.toUpperCase() && v.canal==='ML'
     );
     if(yaExiste){ dupl++; continue; }
     const p=productos.find(x=>x.sku.toUpperCase()===l.sku.toUpperCase());
-    ventas.unshift({
+    const vData={
       fecha:l.fecha, canal:'ML', sku:l.sku,
       producto:l.producto||l.titulo, cantidad:l.cantidad,
       precio:l.precioUnit,
       ingresoBruto:l.ingresoBruto||l.precioUnit*l.cantidad,
       totalNeto:l.totalNeto,
       esCarrito:l.esCarrito||false,
-      nroVenta:l.nroVenta, obs:l.esCarrito?'Importado ML (carrito)':'Importado ML'
-    });
-    movimientos.unshift({
+      nroVenta:l.nroVenta,
+      obs:l.esCarrito?'Importado ML (carrito)':'Importado ML'
+    };
+    const mData={
       fecha:l.fecha, tipo:'Venta', sku:l.sku,
       producto:l.producto||l.titulo, cantidad:l.cantidad,
       costo:p?p.costo:0, precio:l.precioUnit,
-      obs:`Venta ML #${l.nroVenta}`, origen:'ML'
-    });
-    ok++;
+      obs:'Venta ML #'+l.nroVenta, origen:'ML'
+    };
+    try{
+      const sv=await sbGuardar('venta', vData);
+      ventas.unshift(Object.assign({},vData,sv||{}));
+      const sm=await sbGuardar('movimiento', mData);
+      movimientos.unshift(Object.assign({},mData,sm||{}));
+      ok++;
+    }catch(e){ warn++; }
   }
+  mostrarCargando(false);
   renderVentas(); renderPanel(); renderStock(); renderAlertas(); renderMovimientos();
   limpiarMLPaste();
   const partes=[];
