@@ -309,8 +309,9 @@ tr:hover td{background:#fafbfc;}
       <span class="icon">🛒</span> Ver tienda
     </div>
     <div class="sidebar-footer">
+      <div id="rolBadge" style="font-size:11px;margin-bottom:8px;"></div>
       <button onclick="logout()">← Cerrar sesión</button>
-      <button onclick="resetTotal()" style="margin-top:8px;background:none;border:1.5px solid rgba(220,38,38,.5);color:#f87171;">🗑️ Resetear todo</button>
+      <button id="btnResetTotal" onclick="resetTotal()" style="display:none;margin-top:8px;background:none;border:1.5px solid rgba(220,38,38,.5);color:#f87171;">🗑️ Resetear todo</button>
     </div>
   </nav>
 
@@ -360,12 +361,12 @@ tr:hover td{background:#fafbfc;}
           <div class="card-header">
             <div class="toolbar">
               <input class="search-input" type="text" placeholder="Buscar SKU o nombre…" oninput="filtrarProductos(this.value)">
-              <button class="btn btn-primary" onclick="abrirModalProducto()">+ Agregar producto</button>
-              <button class="btn btn-danger" id="btnElimSel" onclick="eliminarSeleccionados()" style="display:none;">🗑️ Eliminar seleccionados (<span id="selCount">0</span>)</button>
+              <button class="btn btn-primary admin-only" onclick="abrirModalProducto()">+ Agregar producto</button>
+              <button class="btn btn-danger admin-only" id="btnElimSel" onclick="eliminarSeleccionados()" style="display:none;">🗑️ Eliminar seleccionados (<span id="selCount">0</span>)</button>
               <button class="btn btn-ghost" onclick="exportarCSV()" title="Descargar catálogo como CSV">⬇️ Exportar CSV</button>
               <label class="btn btn-ghost" style="cursor:pointer;" title="Importar desde CSV">
                 ⬆️ Importar CSV
-                <input type="file" id="csvImportInput" accept=".csv" style="display:none;" onchange="importarCSV(this)">
+                <input type="file" id="csvImportInput" class="admin-only" accept=".csv" style="display:none;" onchange="importarCSV(this)">
               </label>
             </div>
           </div>
@@ -383,10 +384,22 @@ tr:hover td{background:#fafbfc;}
     <!-- ========== STOCK ========== -->
     <div id="sec-stock" class="section">
       <div class="page-header">
-        <div><h2>Stock Actual</h2><div class="sub">Calculado automáticamente desde Movimientos</div></div>
+        <div><h2>Stock Actual</h2><div class="sub">Depósito propio + Full ML — editá Full ML manualmente o importá por CSV</div></div>
       </div>
       <div style="padding:24px;">
         <div class="card">
+          <div class="card-header">
+            <div class="toolbar">
+              <button class="btn btn-ghost" onclick="exportarStockCSV()">⬇️ Exportar stock CSV</button>
+              <label class="btn btn-ghost admin-only" style="cursor:pointer;" title="Importar stock desde CSV">
+                ⬆️ Importar stock CSV
+                <input type="file" id="stockImportInput" accept=".csv" style="display:none;" onchange="importarStockCSV(this)">
+              </label>
+            </div>
+            <div style="font-size:12px;color:var(--text-soft);">
+              Columnas del CSV: <strong>SKU · Stock Depósito · Stock Full ML</strong> — la importación reemplaza directamente los valores
+            </div>
+          </div>
           <div class="table-wrap">
             <table>
               <thead><tr><th>SKU</th><th>Producto</th><th>Proveedor</th><th>Stock Depósito</th><th>Stock Full ML</th><th>Stock Total</th><th>Vendido</th><th>Estado</th></tr></thead>
@@ -930,7 +943,9 @@ tr:hover td{background:#fafbfc;}
 // ================================================================
 // CONSTANTES Y CLAVES
 // ================================================================
-const PASS = "origo2026";
+const PASS_ADMIN = "origo2026";
+const PASS_VIEWER = "origo2025";
+let rolActual = ""; // "admin" o "viewer"
 const SB_URL = "https://piqkwewxbjumyqwtmnxn.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I";
 
@@ -986,15 +1001,47 @@ let ventas = [];
 // LOGIN / LOGOUT
 // ================================================================
 function login(){
-  if(document.getElementById("passInput").value === PASS){
-    document.getElementById("loginScreen").style.display = "none";
-    document.getElementById("adminPanel").classList.add("visible");
-    document.getElementById("adminPanel").style.display = "flex";
-    iniciar();
+  const val = document.getElementById("passInput").value;
+  if(val === PASS_ADMIN){
+    rolActual = "admin";
+  } else if(val === PASS_VIEWER){
+    rolActual = "viewer";
   } else {
     document.getElementById("loginError").style.display = "block";
+    return;
   }
+  document.getElementById("loginScreen").style.display = "none";
+  document.getElementById("adminPanel").classList.add("visible");
+  document.getElementById("adminPanel").style.display = "flex";
+  aplicarRol();
+  iniciar();
 }
+
+function checkViewer(accion){
+  if(!esAdmin()){
+    toast("Modo lectura — "+accion+" solo disponible para el administrador.","err",3000);
+    return true; // blocked
+  }
+  return false;
+}
+
+function aplicarRol(){
+  const esAdmin = rolActual === "admin";
+  // Botón reset: solo admin
+  const btnReset = document.getElementById("btnResetTotal");
+  if(btnReset) btnReset.style.display = esAdmin ? "block" : "none";
+  // Indicador de rol en sidebar
+  const rolBadge = document.getElementById("rolBadge");
+  if(rolBadge){
+    rolBadge.textContent = esAdmin ? "👑 Admin" : "👁️ Solo lectura";
+    rolBadge.style.color = esAdmin ? "#f5c400" : "rgba(255,255,255,.5)";
+  }
+  // Ocultar/mostrar botones de acción según rol
+  const adminOnly = document.querySelectorAll(".admin-only");
+  adminOnly.forEach(el => el.style.display = esAdmin ? "" : "none");
+}
+
+function esAdmin(){ return rolActual === "admin"; }
 function logout(){
   document.getElementById("loginScreen").style.display = "flex";
   document.getElementById("adminPanel").style.display = "none";
@@ -1088,14 +1135,16 @@ async function sbGuardar(tipo, data){
     if(tipo==="deleteCompra")  { await sbDelete("compras","id=eq."+data); }
     if(tipo==="venta")         { const r=await sbInsert("ventas",data); return r; }
     if(tipo==="deleteVenta")   { await sbDelete("ventas","id=eq."+data); }
-    if(tipo==="reset")         {
+    if(tipo==="reset"){
+      // Supabase requiere un filtro para DELETE — usamos created_at o id
+      // Para tablas con sku como PK usamos sku=like.*
       await Promise.all([
-        sbDelete("productos","sku=neq.NOOP_PLACEHOLDER"),
-        sbDelete("movimientos","id=gt.0"),
-        sbDelete("ventas","id=gt.0"),
-        sbDelete("compras","id=gt.0"),
-        sbDelete("cuenta_corriente","id=gt.0"),
-        sbDelete("stock_ml","sku=neq.NOOP_PLACEHOLDER")
+        sbDelete("productos","sku=like.*"),
+        sbDelete("movimientos","id=gte.0"),
+        sbDelete("ventas","id=gte.0"),
+        sbDelete("compras","id=gte.0"),
+        sbDelete("cuenta_corriente","id=gte.0"),
+        sbDelete("stock_ml","sku=like.*")
       ]);
     }
   }catch(e){
@@ -1238,8 +1287,8 @@ function renderProductos(){
       <td class="num">${p.stockMin||0}</td>
       <td><span class="badge ${p.stockOn!==0?'badge-green':'badge-red'}">${p.stockOn!==0?'Visible':'Oculto'}</span></td>
       <td><div class="btn-group">
-        <button class="btn btn-ghost btn-sm" onclick="editarProducto(${idx})">✏️</button>
-        <button class="btn btn-danger btn-sm" onclick="confirmarElimProd(${idx})">🗑️</button>
+        ${esAdmin()?`<button class="btn btn-ghost btn-sm" onclick="editarProducto(${idx})">✏️</button>
+        <button class="btn btn-danger btn-sm" onclick="confirmarElimProd(${idx})">🗑️</button>`:""}
       </div></td>
     </tr>`;
   }).join("");
@@ -1306,6 +1355,7 @@ function calcMargenModal(){
 }
 
 async function guardarProducto(){
+  if(checkViewer("Editar productos")) return;
   const sku=document.getElementById("pSku").value.trim().toUpperCase();
   const nombre=document.getElementById("pNombre").value.trim();
   if(!sku||!nombre){ toast("SKU y nombre son obligatorios.","err"); return; }
@@ -1438,6 +1488,7 @@ function actualizarSkuList(){
   if(vt) vt.innerHTML=opts;
 }
 async function registrarMovimiento(){
+  if(checkViewer("Registrar movimientos")) return;
   const fecha=document.getElementById("mFecha").value;
   const tipo=document.getElementById("mTipo").value;
   const sku=document.getElementById("mSku").value.trim().toUpperCase();
@@ -1478,7 +1529,7 @@ function renderMovimientos(buscar){
       <td class="num">$${fmt(m.precio)}</td>
       <td class="num">$${fmt(m.costo*m.cantidad)}</td>
       <td style="color:var(--text-soft);font-size:12px;">${esc(m.obs||"")}</td>
-      <td><button class="btn btn-danger btn-sm" onclick="eliminarMovimiento(${idx})">✕</button></td>
+      <td>${esAdmin()?`<button class="btn btn-danger btn-sm" onclick="eliminarMovimiento(${idx})">✕</button>`:""}</td>
     </tr>`;
   }).join("");
 }
@@ -1514,6 +1565,7 @@ function calcularSaldoProv(prov){
   return saldo;
 }
 async function registrarCC(){
+  if(checkViewer("Registrar en Cuenta Corriente")) return;
   const fecha=document.getElementById("ccFecha").value;
   const tipo=document.getElementById("ccTipo").value;
   const prov=document.getElementById("ccProveedor").value.trim().toUpperCase();
@@ -1551,7 +1603,7 @@ function renderCC(){
       <td style="max-width:160px;">${esc(m.descripcion||"")}</td>
       <td class="num" style="font-weight:700;">$${fmt(m.importe)}</td>
       <td class="num ${saldo>0?'saldo-deuda':'saldo-ok'}">$${fmt(saldo)}</td>
-      <td><button class="btn btn-danger btn-sm" onclick="eliminarCC(${cuentaCorriente.indexOf(m)})">✕</button></td>
+      <td>${esAdmin()?`<button class="btn btn-danger btn-sm" onclick="eliminarCC(${cuentaCorriente.indexOf(m)})">✕</button>`:""}</td>
     </tr>`;
   }).join("");
   // Resumen por proveedor
@@ -1692,6 +1744,7 @@ function renderLineasCompra(){
 }
 
 async function guardarCompra(){
+  if(checkViewer("Registrar compras")) return;
   const fecha = document.getElementById("cFecha").value;
   const proveedor = document.getElementById("cProveedor").value.trim().toUpperCase();
   const factura = document.getElementById("cFactura").value.trim();
@@ -1769,7 +1822,7 @@ function renderCompras(){
       <td style="font-size:12px;color:var(--text-soft);">${esc(c.obs||"")}</td>
       <td>
         <button class="btn btn-ghost btn-sm" onclick="verDetalleCompra(${realIdx})" title="Ver detalle">🔍</button>
-        <button class="btn btn-danger btn-sm" onclick="eliminarCompra(${realIdx})" title="Eliminar">✕</button>
+        ${esAdmin()?`<button class="btn btn-danger btn-sm" onclick="eliminarCompra(${realIdx})" title="Eliminar">✕</button>`:""}
       </td>
     </tr>`;
   }).join("");
@@ -2177,6 +2230,7 @@ function asignarSkuML(i, val){
 }
 
 async function confirmarImportML(){
+  if(checkViewer("Importar ventas ML")) return;
   const seleccionadas=mlLineasPreview.filter((_,i)=>document.getElementById('mlCheck'+i)?.checked);
   if(!seleccionadas.length){ toast('Seleccioná al menos una línea.','err'); return; }
 
@@ -2243,6 +2297,7 @@ function autocompletarVtSku(val){
 }
 
 async function registrarVentaTienda(){
+  if(checkViewer("Registrar ventas")) return;
   const fecha=document.getElementById('vtFecha').value;
   const sku=document.getElementById('vtSku').value.trim().toUpperCase();
   const cantidad=parseInt(document.getElementById('vtCantidad').value)||0;
@@ -2292,7 +2347,7 @@ function renderVentas(){
       <td class="num">$${fmt(v.precio)}</td>
       <td class="num" style="font-weight:700;">$${fmt(v.cantidad*v.precio)}</td>
       <td style="font-size:12px;color:var(--text-soft);">${esc(v.obs||'')}</td>
-      <td><button class="btn btn-danger btn-sm" onclick="eliminarVenta(${realIdx})">✕</button></td>
+      <td>${esAdmin()?`<button class="btn btn-danger btn-sm" onclick="eliminarVenta(${realIdx})">✕</button>`:""}</td>
     </tr>`;
   }).join('');
 
@@ -2349,6 +2404,7 @@ function toggleCheckAll(checked){
 }
 
 async function eliminarSeleccionados(){
+  if(checkViewer("Eliminar productos")) return;
   const skus = [...document.querySelectorAll(".prod-check:checked")].map(c=>c.dataset.sku);
   if(!skus.length){ toast("No hay productos seleccionados.","err"); return; }
   confirmCb=async()=>{
@@ -2370,6 +2426,110 @@ async function eliminarSeleccionados(){
     "<span style='font-size:12px;color:var(--text-soft);'>"+skus.map(s=>"<span class='sku-tag'>"+esc(s)+"</span>").join(" ")+"</span><br><br>"+
     "<span style='font-size:12px;color:var(--red);'>Esta acción no se puede deshacer.</span>";
   document.getElementById("modalConfirm").classList.add("show");
+}
+
+
+// ================================================================
+// STOCK CSV — EXPORTAR / IMPORTAR
+// ================================================================
+function exportarStockCSV(){
+  const headers = ["SKU","Producto","Proveedor","Stock Depósito","Stock Full ML","Stock Total","Vendido","Stock Mín","Estado"];
+  const rows = productos.map(p=>{
+    const dep=calcularStockDeposito(p.sku);
+    const full=calcularStockFullML(p.sku);
+    const total=dep+full;
+    const vend=calcularVendido(p.sku);
+    let estado="Con stock";
+    if(total<=0) estado="Sin stock";
+    else if(total<(p.stockMin||0)) estado="Bajo mínimo";
+    return [p.sku, p.nombre, p.proveedor||"", dep, full, total, vend, p.stockMin||0, estado].join(";");
+  });
+  const csv=[headers.join(";"),...rows].join("\n");
+  const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="origo_stock_"+new Date().toISOString().slice(0,10)+".csv";
+  a.click();
+  toast("Stock exportado ✅","ok");
+}
+
+async function importarStockCSV(input){
+  const file=input.files[0]; if(!file) return;
+  const reader=new FileReader();
+  reader.onload=async e=>{
+    const text=e.target.result.replace(/^\uFEFF/,"");
+    const lines=text.split(/\r?\n/).filter(l=>l.trim());
+    if(lines.length<2){ toast("CSV vacío o sin datos.","err"); return; }
+
+    // Auto-detectar separador
+    const sep=lines[0].includes(";")?";":","
+    const splitLine=l=>l.split(sep).map(v=>v.trim());
+
+    const header=splitLine(lines[0]).map(h=>h.toLowerCase());
+    const getIdx=(...names)=>{
+      for(const n of names){
+        const i=header.findIndex(h=>h.includes(n));
+        if(i>=0) return i;
+      }
+      return -1;
+    };
+
+    const iSku=getIdx("sku");
+    const iDep=getIdx("dep","deposito","depósito");
+    const iFull=getIdx("full","full ml");
+
+    if(iSku<0){ toast("No se encontró columna SKU.","err"); return; }
+    if(iDep<0&&iFull<0){ toast("No se encontró columna de stock.","err"); return; }
+
+    let actualizados=0, sinEncontrar=0;
+    const promises=[];
+
+    mostrarCargando(true);
+    for(let i=1;i<lines.length;i++){
+      const row=splitLine(lines[i]);
+      if(!row[iSku]) continue;
+      const sku=row[iSku].trim().toUpperCase();
+      const prod=productos.find(p=>p.sku.toUpperCase()===sku);
+      if(!prod){ sinEncontrar++; continue; }
+
+      const hoy=new Date().toISOString().split("T")[0];
+
+      // Stock Depósito: calcular diferencia y generar ajuste
+      if(iDep>=0 && row[iDep]!==undefined && row[iDep]!==""){
+        const nuevoDep=parseInt(row[iDep])||0;
+        const actualDep=calcularStockDeposito(sku);
+        const diff=nuevoDep-actualDep;
+        if(diff!==0){
+          const tipo=diff>0?"Ajuste+":"Ajuste-";
+          const mov={
+            fecha:hoy, tipo, sku, producto:prod.nombre,
+            cantidad:Math.abs(diff), costo:prod.costo||0, precio:prod.precio||0,
+            obs:"Ajuste stock por importación CSV", origen:""
+          };
+          const saved=await sbGuardar("movimiento",mov).catch(()=>null);
+          movimientos.unshift(Object.assign({},mov,saved||{}));
+        }
+      }
+
+      // Stock Full ML: reemplazar directo
+      if(iFull>=0 && row[iFull]!==undefined && row[iFull]!==""){
+        const nuevoFull=parseInt(row[iFull])||0;
+        stockML[sku]=nuevoFull;
+        promises.push(sbGuardar("stockml",{sku,cantidad:nuevoFull}).catch(()=>null));
+      }
+
+      actualizados++;
+    }
+
+    await Promise.all(promises);
+    guardarLS("movimientos"); // no-op pero por si acaso
+    mostrarCargando(false);
+
+    renderStock(); renderAlertas(); renderPanel(); renderMovimientos();
+    toast("Stock importado: "+actualizados+" producto"+(actualizados!==1?"s":"")+" actualizados"+(sinEncontrar?" · "+sinEncontrar+" SKU no encontrado"+(sinEncontrar!==1?"s":""):""),"ok",5000);
+    input.value="";
+  };
+  reader.readAsText(file,"latin-1");
 }
 
 
@@ -2489,28 +2649,39 @@ function parseCsvLine(line){
 // RESET TOTAL
 // ================================================================
 function resetTotal(){
+  if(!esAdmin()){ toast("Solo el administrador puede resetear el sistema.","err"); return; }
+  // Primer cartel de confirmación
   confirmCb=async()=>{
-    mostrarCargando(true);
-    try{ await sbGuardar("reset",null); }catch(e){ toast("Error al resetear: "+e.message,"err"); mostrarCargando(false); return; }
-    productos=[]; movimientos=[]; cuentaCorriente=[];
-    stockML={}; compras=[]; ventas=[]; lineasCompra=[]; mlLineasPreview=[];
-    actualizarProvLists(); actualizarSkuList(); actualizarSkuListCompras();
-    renderPanel(); renderProductos(); renderStock(); renderAlertas();
-    renderMovimientos(); renderCC(); renderCompras(); renderVentas(); renderAnalisis();
-    mostrarCargando(false);
-    toast("✅ Todo reseteado. Sistema en blanco.", "ok", 4000);
+    // Segundo cartel — doble confirmación
+    cerrarConfirm();
+    setTimeout(()=>{
+      confirmCb=async()=>{
+        mostrarCargando(true);
+        try{ await sbGuardar("reset",null); }catch(e){ toast("Error al resetear: "+e.message,"err"); mostrarCargando(false); return; }
+        productos=[]; movimientos=[]; cuentaCorriente=[];
+        stockML={}; compras=[]; ventas=[]; lineasCompra=[]; mlLineasPreview=[];
+        actualizarProvLists(); actualizarSkuList(); actualizarSkuListCompras();
+        renderPanel(); renderProductos(); renderStock(); renderAlertas();
+        renderMovimientos(); renderCC(); renderCompras(); renderVentas(); renderAnalisis();
+        mostrarCargando(false);
+        toast("✅ Todo reseteado. Sistema en blanco.", "ok", 4000);
+      };
+      document.getElementById("confirmBtn").textContent = "✅ SÍ, BORRAR TODO";
+      document.getElementById("confirmBtn").style.background = "var(--red)";
+      document.getElementById("confirmMsg").innerHTML =
+        "<strong style='color:var(--red);font-size:15px;'>⚠️ Última confirmación</strong><br><br>"+
+        "Esto borrará <strong>todos los datos</strong> de Supabase:<br>"+
+        "<span style='font-size:13px;color:var(--text-soft);'>Productos · Movimientos · Compras · Ventas · Cuenta Corriente · Stock Full ML</span><br><br>"+
+        "<span style='font-size:12px;color:var(--red);font-weight:700;'>¿Estás absolutamente seguro?</span>";
+      document.getElementById("modalConfirm").classList.add("show");
+    },200);
   };
-  document.getElementById("confirmBtn").textContent = "Sí, borrar todo";
-  document.getElementById("confirmBtn").style.background = "var(--red)";
-  document.getElementById("confirmMsg").innerHTML = `
-    <strong style="color:var(--red);font-size:16px;">⚠️ ¿Borrar todo?</strong><br><br>
-    Se eliminarán permanentemente:<br>
-    <span style="font-size:13px;color:var(--text-soft);">
-    Productos · Movimientos · Compras · Ventas<br>
-    Cuenta Corriente · Stock Full ML
-    </span><br><br>
-    <span style="font-size:12px;color:var(--red);">Esta acción no se puede deshacer.</span>
-  `;
+  document.getElementById("confirmBtn").textContent = "Continuar";
+  document.getElementById("confirmBtn").style.background = "var(--orange)";
+  document.getElementById("confirmMsg").innerHTML =
+    "<strong style='font-size:15px;'>🗑️ ¿Resetear el sistema?</strong><br><br>"+
+    "Se borrarán <strong>todos los datos</strong> permanentemente.<br><br>"+
+    "<span style='font-size:12px;color:var(--text-soft);'>Esta acción no se puede deshacer.</span>";
   document.getElementById("modalConfirm").classList.add("show");
 }
 
