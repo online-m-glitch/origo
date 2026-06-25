@@ -2546,11 +2546,12 @@ async function importarStockCSV(input){
 function exportarCSV(){
   const cols = ["sku","nombre","proveedor","categoria","rubro","costo","precio","precioTienda","stockMin","stockOn","img"];
   const headers = ["SKU","Nombre","Proveedor","Categoría","Rubro","Costo ($)","Precio ML ($)","Precio Tienda ($)","Stock Mín","Tienda (1=visible)","Imagen (URL)"];
+  const numColsExp = new Set(["costo","precio","precioTienda"]);
   const rows = productos.map(p=>cols.map(c=>{
-    const v = p[c]??""
-    // Escapar comas y comillas en strings
-    return typeof v==="string" && (v.includes(",") || v.includes('"') || v.includes("\n"))
-      ? `"${v.replace(/"/g,'""')}"` : v;
+    const v = p[c]??"";
+    if(numColsExp.has(c)){ const n=parseFloat(v)||0; return String(n).replace(".",","); }
+    if(typeof v==="string" && (v.includes(";") || v.includes('"') || v.includes("\n"))) return `"${v.replace(/"/g,'""')}"`;
+    return v;
   }).join(";"));
   const csv = [headers.join(";"), ...rows].join("\n");
   const blob = new Blob(["\uFEFF"+csv], {type:"text/csv;charset=utf-8;"});
@@ -2562,13 +2563,57 @@ function exportarCSV(){
 }
 
 function limpiarNumCSV(val){
-  // Limpia "$ 8.685,00" → 8685 | "8685.00" → 8685
+  // Limpia formatos: "$ 8.685,00" | "8.685,00" | "8685,03" | "8685.03" | "7.218.454" (Excel error)
   let s=String(val||"").replace(/\$/g,"").replace(/\s/g,"").trim();
-  if(s.includes(",")&&s.includes(".")){
-    // Formato argentino: punto=miles, coma=decimal
-    s=s.replace(/\./g,"").replace(",",".");
-  } else if(s.includes(",")&&!s.includes(".")){
-    s=s.replace(",",".");
+  if(!s) return 0;
+
+  const tieneC=s.includes(",");
+  const tieneP=s.includes(".");
+  const cantP=(s.match(/\./g)||[]).length;
+  const cantC=(s.match(/,/g)||[]).length;
+
+  if(tieneC && tieneP){
+    // Ambos: determinar cuál es decimal según posición
+    const posUltimaC=s.lastIndexOf(",");
+    const posUltimaP=s.lastIndexOf(".");
+    if(posUltimaC > posUltimaP){
+      // Coma es decimal: "8.685,00" → remover puntos, coma→punto
+      s=s.replace(/\./g,"").replace(",",".");
+    } else {
+      // Punto es decimal: "8,685.00" → remover comas
+      s=s.replace(/,/g,"");
+    }
+  } else if(tieneC && !tieneP){
+    // Solo coma
+    if(cantC===1){
+      // Puede ser decimal "8685,03" o miles "8,685"
+      const partes=s.split(",");
+      if(partes[1].length<=2){
+        // Decimal: "8685,03"
+        s=s.replace(",",".");
+      } else {
+        // Miles: "8,685" → remover coma
+        s=s.replace(/,/g,"");
+      }
+    } else {
+      // Múltiples comas = separador de miles: "8,685,000"
+      s=s.replace(/,/g,"");
+    }
+  } else if(tieneP && !tieneC){
+    // Solo punto
+    if(cantP===1){
+      // Puede ser decimal "8685.03" o miles "8.685"
+      const partes=s.split(".");
+      if(partes[1].length<=2){
+        // Decimal: "8685.03" — dejar como está
+      } else {
+        // Miles "8.685" → remover punto
+        s=s.replace(/\./g,"");
+      }
+    } else {
+      // Múltiples puntos = miles excel: "7.218.454.505" → remover puntos
+      s=s.replace(/\./g,"");
+    }
   }
   return parseFloat(s)||0;
 }
