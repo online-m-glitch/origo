@@ -226,7 +226,21 @@
   .cart-badge.show{display:block;}
 
   /* SECTION TITLES */
-  .section-title{
+  /* ── Filtro Rubros ── */
+.rubros-wrap{
+  display:flex;flex-wrap:wrap;gap:8px;
+  margin-bottom:24px;
+}
+.rubro-btn{
+  padding:7px 18px;border-radius:20px;border:2px solid #e0e4eb;
+  background:#fff;font-size:13px;font-weight:600;cursor:pointer;
+  color:#555;transition:.15s;white-space:nowrap;
+}
+.rubro-btn:hover{border-color:#1a56db;color:#1a56db;}
+.rubro-btn.active{background:#1a56db;border-color:#1a56db;color:#fff;}
+.rubro-btn.all.active{background:#f5c400;border-color:#f5c400;color:#0d2259;}
+
+.section-title{
     font-size:18px;
     font-weight:700;
     color:var(--primary-dark);
@@ -464,6 +478,7 @@
 <div class="container">
 
   <h2 class="section-title">Nuestros Productos</h2>
+  <div class="rubros-wrap" id="rubrosWrap"></div>
   <div class="grid" id="productGrid"></div>
 
   <!-- ============ RESUMEN PEDIDO ============ -->
@@ -589,6 +604,7 @@ let productos = [];
   }
   // Renderizar tienda después de cargar
   if(typeof renderProducts === "function") renderProducts();
+  if(typeof renderRubros === "function") renderRubros();
   if(typeof renderCart === "function") renderCart();
 })();
 
@@ -606,6 +622,30 @@ function fmt(num){
   return "$" + Math.round(num).toLocaleString("es-AR");
 }
 
+// ===== Filtro por Rubro =====
+let rubroActivo = "";
+
+function renderRubros(){
+  const wrap = document.getElementById("rubrosWrap");
+  if(!wrap) return;
+  // Obtener rubros únicos no vacíos
+  const rubros = [...new Set(productos.map(p=>p.rubro||"").filter(r=>r.trim()))].sort();
+  if(rubros.length === 0){ wrap.innerHTML=""; return; }
+  wrap.innerHTML =
+    `<button class="rubro-btn all ${rubroActivo===""?"active":""}" onclick="filtrarRubro('')">🔎 Todos</button>` +
+    rubros.map(r=>
+      `<button class="rubro-btn ${rubroActivo===r?"active":""}" onclick="filtrarRubro('${r.replace(/'/g,"\'")}')">
+        ${r}
+      </button>`
+    ).join("");
+}
+
+function filtrarRubro(rubro){
+  rubroActivo = rubro;
+  renderRubros();
+  renderProducts();
+}
+
 // ===== Render de productos =====
 function renderProducts(){
   if(!productos || productos.length===0){
@@ -613,9 +653,19 @@ function renderProducts(){
     if(grid) grid.innerHTML='<div style="text-align:center;padding:60px;color:#888;font-size:16px;">Cargando productos...</div>';
     return;
   }
+  // Filtrar por rubro activo
+  const lista = rubroActivo
+    ? productos.filter(p=>(p.rubro||"")=== rubroActivo)
+    : productos;
+
   const grid = document.getElementById("productGrid");
   grid.innerHTML = "";
-  productos.forEach(p=>{
+  if(lista.length===0){
+    grid.innerHTML='<div style="text-align:center;padding:60px;color:#888;font-size:15px;">No hay productos en este rubro.</div>';
+    renderRubros();
+    return;
+  }
+  lista.forEach(p=>{
     const card = document.createElement("div");
     card.className = "card";
     card.innerHTML = `
@@ -640,6 +690,7 @@ function renderProducts(){
     `;
     grid.appendChild(card);
   });
+  renderRubros();
 }
 
 function changeQty(sku, delta){
