@@ -372,7 +372,7 @@ tr:hover td{background:#fafbfc;}
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th style="width:32px;"><input type="checkbox" id="checkAll" onchange="toggleCheckAll(this.checked)" style="width:15px;height:15px;cursor:pointer;"></th><th>Img</th><th>SKU</th><th>Producto</th><th>Proveedor</th><th>Costo ($)</th><th>Precio ML ($)</th><th>Precio Tienda ($)</th><th>Margen %</th><th>Stock Mín</th><th>Tienda</th><th>Acciones</th></tr></thead>
+              <thead><tr><th style="width:32px;"><input type="checkbox" id="checkAll" onchange="toggleCheckAll(this.checked)" style="width:15px;height:15px;cursor:pointer;"></th><th>Img</th><th>SKU</th><th>Producto</th><th>Proveedor</th><th>Rubro</th><th>Costo ($)</th><th>Precio ML ($)</th><th>Precio Tienda ($)</th><th>Margen %</th><th>Stock Mín</th><th>Tienda</th><th>Acciones</th></tr></thead>
               <tbody id="productosBody"></tbody>
             </table>
             <div class="empty" id="productosEmpty" style="display:none;"><div class="icon">📦</div><p>No hay productos que coincidan.</p></div>
@@ -856,6 +856,10 @@ tr:hover td{background:#fafbfc;}
         <label>Categoría</label>
         <input type="text" id="pCategoria" placeholder="Ej: Protectores">
       </div>
+      <div class="form-group">
+        <label>Rubro</label>
+        <input type="text" id="pRubro" placeholder="Ej: Electrónica">
+      </div>
       <div class="form-group span2" style="grid-column:span 3;">
         <label>Nombre completo *</label>
         <input type="text" id="pNombre" placeholder="Nombre del producto">
@@ -1280,6 +1284,7 @@ function renderProductos(){
       <td><span class="sku-tag">${esc(p.sku)}</span></td>
       <td style="max-width:180px;">${esc(p.nombre)}</td>
       <td>${esc(p.proveedor||"")}</td>
+      <td style="font-size:12px;">${esc(p.rubro||"")}</td>
       <td class="num">$${fmt(p.costo)}</td>
       <td class="num">$${fmt(p.precio)}</td>
       <td class="num">$${fmt(p.precioTienda||0)}</td>
@@ -1297,7 +1302,7 @@ function renderProductos(){
 function abrirModalProducto(){
   editandoProdIdx=-1;
   document.getElementById("modalProdTitle").textContent="Nuevo producto";
-  ["pSku","pNombre","pProveedor","pCategoria","pCosto","pPrecio","pPrecioTienda","pImg","pImgFile","pStockInicial"].forEach(id=>document.getElementById(id).value="");
+  ["pSku","pNombre","pProveedor","pCategoria","pRubro","pCosto","pPrecio","pPrecioTienda","pImg","pImgFile","pStockInicial"].forEach(id=>document.getElementById(id).value="");
   document.getElementById("pMargen").value="";
   document.getElementById("pSku").disabled=false;
   document.getElementById("pStockMin").value="15";
@@ -1315,6 +1320,7 @@ function editarProducto(idx){
   document.getElementById("pNombre").value=p.nombre;
   document.getElementById("pProveedor").value=p.proveedor||"";
   document.getElementById("pCategoria").value=p.categoria||"";
+  document.getElementById("pRubro").value=p.rubro||"";
   document.getElementById("pCosto").value=p.costo||"";
   document.getElementById("pPrecio").value=p.precio||"";
   document.getElementById("pPrecioTienda").value=p.precioTienda||"";
@@ -1364,6 +1370,7 @@ async function guardarProducto(){
     sku, nombre,
     proveedor:document.getElementById("pProveedor").value.trim().toUpperCase(),
     categoria:document.getElementById("pCategoria").value.trim(),
+    rubro:document.getElementById("pRubro").value.trim(),
     costo:parseFloat(document.getElementById("pCosto").value)||0,
     precio:parseFloat(document.getElementById("pPrecio").value)||0,
     precioTienda:parseFloat(document.getElementById("pPrecioTienda").value)||0,
@@ -2537,8 +2544,8 @@ async function importarStockCSV(input){
 // IMPORTAR / EXPORTAR CSV
 // ================================================================
 function exportarCSV(){
-  const cols = ["sku","nombre","proveedor","categoria","costo","precio","precioTienda","stockMin","stockOn","img"];
-  const headers = ["SKU","Nombre","Proveedor","Categoría","Costo ($)","Precio ML ($)","Precio Tienda ($)","Stock Mín","Tienda (1=visible)","Imagen (URL)"];
+  const cols = ["sku","nombre","proveedor","categoria","rubro","costo","precio","precioTienda","stockMin","stockOn","img"];
+  const headers = ["SKU","Nombre","Proveedor","Categoría","Rubro","Costo ($)","Precio ML ($)","Precio Tienda ($)","Stock Mín","Tienda (1=visible)","Imagen (URL)"];
   const rows = productos.map(p=>cols.map(c=>{
     const v = p[c]??""
     // Escapar comas y comillas en strings
@@ -2605,6 +2612,7 @@ async function importarCSV(input){
         sku, nombre,
         proveedor: get(row,"proveedor").toUpperCase(),
         categoria: get(row,"categ"),
+        rubro: get(row,"rubro"),
         costo:       limpiarNumCSV(get(row,"costo")),
         precio:      limpiarNumCSV(get(row,"precio ml","precio_ml","precioml")),
         precioTienda:limpiarNumCSV(get(row,"precio tienda","precio_tienda","preciotienda")),
