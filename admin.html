@@ -1959,13 +1959,47 @@ function vtab(id){
 }
 
 // ── ML Importador ──
-// Columnas del reporte ML — detectadas automáticamente según versión del reporte
-// v1 (viejo): sku=22, titulo=25, precioUnit=27, total=18
-// v2 (nuevo): sku=23, titulo=26, precioUnit=28, total=19
-// Se detecta automáticamente en procesarRowsML()
-const ML_COLS_V1 = { nroVenta:0, fecha:1, estado:2, esCarrito:4, unidades:6, ingresosBrutos:7, total:18, sku:22, canal:24, titulo:25, precioUnit:27 };
-const ML_COLS_V2 = { nroVenta:0, fecha:1, estado:2, esCarrito:4, unidades:6, ingresosBrutos:7, total:19, sku:23, canal:25, titulo:26, precioUnit:28 };
-let ML_COLS = ML_COLS_V2; // default al formato nuevo
+// Columnas ML — se detectan dinámicamente desde el header del archivo
+// Así el importador funciona sin importar qué versión exporte ML
+let ML_COLS = {}; // se llena en detectarColsML()
+
+function detectarColsML(headerRow){
+  // Mapeo de nombres de columna ML → clave interna
+  const MAPEO = {
+    nroVenta:   ['# de venta','nro de venta','numero de venta'],
+    fecha:      ['fecha de venta','fecha'],
+    estado:     ['estado'],
+    esCarrito:  ['paquete de varios','paquete de varios productos'],
+    unidades:   ['unidades'],
+    ingresosBrutos: ['ingresos por productos','ingresos por producto'],
+    total:      ['total (ars)','total neto','total'],
+    sku:        ['sku'],
+    canal:      ['canal de venta','canal'],
+    titulo:     ['título de la publicación','titulo de la publicacion','título','titulo'],
+    precioUnit: ['precio unitario de venta','precio unitario','precio unit']
+  };
+
+  const cols = {};
+  const h = headerRow.map((v,i)=>({idx:i, val:String(v||'').toLowerCase().trim()}));
+
+  for(const [key, names] of Object.entries(MAPEO)){
+    for(const name of names){
+      const found = h.find(c=>c.val.includes(name));
+      if(found){ cols[key]=found.idx; break; }
+    }
+    // Fallback a posiciones conocidas si no encuentra por nombre
+    if(cols[key]===undefined){
+      const fallbacks = {
+        nroVenta:0, fecha:1, estado:2, esCarrito:4, unidades:6,
+        ingresosBrutos:7, total:18, sku:22, canal:24, titulo:25, precioUnit:27
+      };
+      if(fallbacks[key]!==undefined) cols[key]=fallbacks[key];
+    }
+  }
+  return cols;
+}
+
+function detectarVersionML(rows, dataStart){ return {}; } // ya no se usa, se reemplazó por detectarColsML
 const MESES_ES = {enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12};
 
 function procesarArchivoML(input){
@@ -2045,33 +2079,38 @@ function procesarRowsML(rows){
   }
   const dataStart=headerIdx>=0?headerIdx+1:6;
 
-  // Auto-detectar versión del reporte
-  ML_COLS = detectarVersionML(rows, dataStart);
+  // Detectar columnas por nombre desde el header
+  const headerRow = headerIdx>=0 ? rows[headerIdx] : rows[dataStart-1]||[];
+  ML_COLS = detectarColsML(headerRow);
+  console.log('Columnas ML detectadas:', ML_COLS);
 
   mlLineasPreview=[];
   let ignoradas=0;
 
-  // Primer pasada: ratio de filas madre de paquetes
-  const ratioCarrito={};
-  // También guardamos la fecha de la madre por nroVenta (las hijas no tienen fecha propia)
-  const fechaMadre={};
+  // ── Primera pasada: indexar filas madre de paquetes ──
+  // ratioCarrito[nroVenta] = ratio neto/bruto
+  // fechaMadre[nroVenta] = fecha de la madre
+  // ingresosMadre[nroVenta] = ingresos brutos de la madre (para prorratear entre hijas)
+  const ratioCarrito={}, fechaMadre={}, ingresosMadre={};
+
   for(let i=dataStart;i<rows.length;i++){
     const row=rows[i];
     if(!row||!row.length) continue;
     const estado=String(row[ML_COLS.estado]||'').trim().toLowerCase();
     const nroVenta=String(row[ML_COLS.nroVenta]||'').trim();
     if(estado.startsWith('paquete de') && nroVenta.length>=5){
-      const ib=parseFloat(String(row[ML_COLS.ingresosBrutos]||'').replace(/[^0-9.,-]/g,''))||0;
-      const tn=parseFloat(String(row[ML_COLS.total]||'').replace(/[^0-9.,-]/g,''))||0;
-      if(ib>0) ratioCarrito[nroVenta]=tn/ib;
-      fechaMadre[nroVenta]=String(row[ML_COLS.fecha]||'').trim();
+      const ib=parseFloat(String(row[ML_COLS.ingresosBrutos]||'0').replace(/[^0-9.,-]/g,''))||0;
+      const tn=parseFloat(String(row[ML_COLS.total]||'0').replace(/[^0-9.,-]/g,''))||0;
+      if(ib>0){ ratioCarrito[nroVenta]=tn/ib; ingresosMadre[nroVenta]=ib; }
+      const f=String(row[ML_COLS.fecha]||'').trim();
+      if(f.length>4) fechaMadre[nroVenta]=f;
     }
   }
 
-  // Último ratio y fecha de paquete madre visto (para hijas sin nroVenta de madre)
-  let lastRatio=0.67, lastFechaMadre='';
+  // Último ratio/fecha vistos (fallback para hijas cuya madre no está en el archivo)
+  let lastRatio=0.67, lastFechaMadre='', lastNroMadre='';
 
-  // Segunda pasada: procesar ventas
+  // ── Segunda pasada: procesar ventas ──
   for(let i=dataStart;i<rows.length;i++){
     const row=rows[i];
     if(!row||!row.length) continue;
@@ -2080,47 +2119,56 @@ function procesarRowsML(rows){
     if(!nroVenta||nroVenta.length<5) continue;
 
     const estado=String(row[ML_COLS.estado]||'').trim();
+    const estadoLow=estado.toLowerCase();
 
-    // Actualizar lastRatio si es fila madre
-    if(estado.toLowerCase().startsWith('paquete de')){
+    // Registrar madre y pasar a siguiente
+    if(estadoLow.startsWith('paquete de')){
+      lastNroMadre=nroVenta;
       if(ratioCarrito[nroVenta]) lastRatio=ratioCarrito[nroVenta];
       if(fechaMadre[nroVenta]) lastFechaMadre=fechaMadre[nroVenta];
-      continue; // no procesar la madre
+      continue;
     }
 
-    // Ignorar estados no válidos
+    // Filtrar estados inválidos
     if(esEstadoIgnorar(estado)){ ignoradas++; continue; }
 
     const skuRaw=String(row[ML_COLS.sku]||'').trim();
+    if(!skuRaw||skuRaw.trim()===''||skuRaw.trim()==='-') continue;
+
+    // Título: usar col titulo (nombre del producto), no col variante
     const titulo=String(row[ML_COLS.titulo]||'').trim();
+
     const cantRaw=row[ML_COLS.unidades];
     const precioUnitRaw=row[ML_COLS.precioUnit];
     const ingresoBrutoRaw=row[ML_COLS.ingresosBrutos];
     const totalRaw=row[ML_COLS.total];
     const esCarritoRaw=String(row[ML_COLS.esCarrito]||'').trim().toLowerCase();
+
+    // Fecha: filas hijas de paquete no tienen fecha → heredar de la madre
     let fechaRaw=String(row[ML_COLS.fecha]||'').trim();
-
-    // Filas hijas de paquete no tienen fecha propia → usar la de la madre
-    if(!fechaRaw||fechaRaw.length<5) fechaRaw=lastFechaMadre;
-
-    const cantidad=parseInt(cantRaw)||1;
-    const precioUnit=parseFloat(String(precioUnitRaw||'').replace(/[^0-9.,]/g,'').replace(',','.'))||0;
-    const fecha=parsearFechaML(fechaRaw);
-    const sku=skuRaw.toUpperCase().trim();
-    if(!sku) continue;
-
-    let ingresoBruto=parseFloat(String(ingresoBrutoRaw||'').replace(/[^0-9.,-]/g,''))||0;
-    let totalNeto=parseFloat(String(totalRaw||'').replace(/[^0-9.,-]/g,''))||0;
-
-    // Filas hijas (sin ingresoBruto): calcular con precio y ratio de la madre
-    if(!ingresoBruto && precioUnit>0){
-      ingresoBruto=precioUnit*cantidad;
-      // Buscar ratio: por nroVenta exacto, luego último ratio visto
-      const ratio=ratioCarrito[nroVenta]||lastRatio;
-      totalNeto=ingresoBruto*ratio;
+    if(!fechaRaw||fechaRaw.length<5){
+      fechaRaw=fechaMadre[lastNroMadre]||lastFechaMadre;
     }
 
-    const esCarrito=esCarritoRaw==='sí'||esCarritoRaw==='si'||esCarritoRaw==='yes';
+    const cantidad=parseInt(cantRaw)||1;
+    const precioUnit=parseFloat(String(precioUnitRaw==null?'':precioUnitRaw).replace(/[^0-9.,]/g,'').replace(',','.'))||0;
+    const fecha=parsearFechaML(fechaRaw);
+    const sku=skuRaw.toUpperCase().trim();
+
+    // Ingresos y neto
+    let ingresoBruto=parseFloat(String(ingresoBrutoRaw==null?'':ingresoBrutoRaw).replace(/[^0-9.,-]/g,''))||0;
+    let totalNeto=parseFloat(String(totalRaw==null?'':totalRaw).replace(/[^0-9.,-]/g,''))||0;
+
+    // Fila hija (sin ingresos propios): calcular desde precio y ratio de la madre
+    if(!ingresoBruto && precioUnit>0){
+      ingresoBruto=precioUnit*cantidad;
+      const ratio=ratioCarrito[lastNroMadre]||lastRatio;
+      totalNeto=Math.round(ingresoBruto*ratio*100)/100;
+    }
+
+    // esCarrito: columna dice "Sí" O la fila no tiene ingresoBruto propio (es hija de paquete)
+    const esCarrito=esCarritoRaw==='sí'||esCarritoRaw==='si'||esCarritoRaw==='yes'||
+      (!parseFloat(String(ingresoBrutoRaw==null?'':ingresoBrutoRaw).replace(/[^0-9.,-]/g,'')) && precioUnit>0);
     const prod=productos.find(p=>p.sku.toUpperCase()===sku);
     const yaImportada=ventas.some(v=>
       v.nroVenta===nroVenta && v.sku.toUpperCase()===sku && v.canal==='ML'
@@ -2136,7 +2184,7 @@ function procesarRowsML(rows){
   }
 
   if(!mlLineasPreview.length){ toast('No se encontraron líneas de ventas en el archivo.','err'); return; }
-  if(ignoradas>0) console.log('Filas ignoradas (canceladas/devoluciones):', ignoradas);
+  if(ignoradas>0) console.log('Filas ignoradas:', ignoradas);
   renderMLPreview();
 }
 
