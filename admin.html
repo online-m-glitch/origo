@@ -402,7 +402,7 @@ tr:hover td{background:#fafbfc;}
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>SKU</th><th>Producto</th><th>Proveedor</th><th>Stock Depósito</th><th>Stock Full ML</th><th>Stock Total</th><th>Vendido</th><th>Estado</th></tr></thead>
+              <thead><tr><th>SKU</th><th>Producto</th><th>Proveedor</th><th>Stock Depósito</th><th>Stock Full ML</th><th>Ajuste Full ML</th><th>Stock Total</th><th>Vendido</th><th>Estado</th></tr></thead>
               <tbody id="stockBody"></tbody>
             </table>
           </div>
@@ -1421,14 +1421,19 @@ function renderStock(){
     if(total<=0){ estado="Sin stock"; cls="badge-red"; }
     else if(total<(p.stockMin||0)){ estado="Bajo mínimo"; cls="badge-orange"; }
     else { estado="Con stock"; cls="badge-green"; }
-    return `<tr>
+    return `<tr id="stockrow-${esc(p.sku)}">
       <td><span class="sku-tag">${esc(p.sku)}</span></td>
       <td>${esc(p.nombre)}</td>
       <td>${esc(p.proveedor||"")}</td>
       <td class="num ${dep<=0?'num-neg':''}">${dep}</td>
+      <td class="num" style="font-weight:700;color:var(--ml-blue);">${full}</td>
       <td>
-        <input type="number" value="${full}" min="0" style="width:70px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:13px;"
-          onchange="actualizarStockML('${esc(p.sku)}',this.value)" title="Stock Full ML (manual)">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <input type="number" id="ajuste-${esc(p.sku)}" placeholder="nuevo valor"
+            style="width:90px;padding:5px 7px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;"
+            onkeydown="if(event.key==='Enter') guardarAjusteFullML('${esc(p.sku)}')">
+          <button class="btn btn-primary btn-sm admin-only" onclick="guardarAjusteFullML('${esc(p.sku)}')" title="Guardar">✔</button>
+        </div>
       </td>
       <td class="num" style="font-weight:700;">${total}</td>
       <td class="num">${vend}</td>
@@ -1437,11 +1442,22 @@ function renderStock(){
   });
   document.getElementById("stockBody").innerHTML = rows.join("") || `<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-soft);">Sin productos.</td></tr>`;
 }
-async function actualizarStockML(sku, val){
-  const cantidad=parseInt(val)||0;
-  stockML[sku]=cantidad;
-  await sbGuardar("stockml",{sku,cantidad});
-  renderPanel(); renderAlertas();
+async function guardarAjusteFullML(sku){
+  if(checkViewer("Ajustar stock Full ML")) return;
+  const input=document.getElementById("ajuste-"+sku);
+  if(!input||input.value==="") return;
+  const cantidad=parseInt(input.value)||0;
+  input.value="";
+  input.placeholder="guardando...";
+  try{
+    stockML[sku]=cantidad;
+    await sbGuardar("stockml",{sku,cantidad});
+    renderStock(); renderPanel(); renderAlertas();
+    toast("Full ML actualizado: "+sku+" → "+cantidad+" unidades ✅","ok");
+  }catch(e){
+    toast("Error guardando: "+e.message,"err");
+    input.placeholder="error, reintentá";
+  }
 }
 
 // ================================================================
