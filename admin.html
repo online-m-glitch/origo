@@ -392,12 +392,12 @@ tr:hover td{background:#fafbfc;}
             <div class="toolbar">
               <button class="btn btn-ghost" onclick="exportarStockCSV()">⬇️ Exportar stock CSV</button>
               <label class="btn btn-ghost admin-only" style="cursor:pointer;" title="Importar stock desde CSV">
-                ⬆️ Importar stock CSV
-                <input type="file" id="stockImportInput" accept=".csv" style="display:none;" onchange="importarStockCSV(this)">
+                ⬆️ Importar stock CSV / ML
+                <input type="file" id="stockImportInput" accept=".csv,.xlsx,.xls" style="display:none;" onchange="importarStockCSV(this)">
               </label>
             </div>
             <div style="font-size:12px;color:var(--text-soft);">
-              Columnas del CSV: <strong>SKU · Stock Depósito · Stock Full ML</strong> — la importación reemplaza directamente los valores
+              CSV propio: <strong>SKU · Stock Depósito · Stock Full ML</strong> &nbsp;|&nbsp; O subí la <strong>planilla Publicaciones de ML</strong> (.xlsx) — importa el stock Full ML y precios automáticamente
             </div>
           </div>
           <div class="table-wrap">
@@ -2510,36 +2510,35 @@ function exportarStockCSV(){
 
 async function importarStockCSV(input){
   const file=input.files[0]; if(!file) return;
+
+  if(file.name.match(/\.xlsx?$/i)){
+    await importarStockML(file);
+    input.value="";
+    return;
+  }
+
   const reader=new FileReader();
   reader.onload=async e=>{
     const text=e.target.result.replace(/^\uFEFF/,"");
     const lines=text.split(/\r?\n/).filter(l=>l.trim());
     if(lines.length<2){ toast("CSV vacío o sin datos.","err"); return; }
 
-    // Auto-detectar separador
     const sep=lines[0].includes(";")?";":","
     const splitLine=l=>l.split(sep).map(v=>v.trim());
-
     const header=splitLine(lines[0]).map(h=>h.toLowerCase());
-    const getIdx=(...names)=>{
-      for(const n of names){
-        const i=header.findIndex(h=>h.includes(n));
-        if(i>=0) return i;
-      }
-      return -1;
-    };
+    const getIdx=(...names)=>{ for(const n of names){ const i=header.findIndex(h=>h.includes(n)); if(i>=0) return i; } return -1; };
 
     const iSku=getIdx("sku");
     const iDep=getIdx("dep","deposito","depósito");
     const iFull=getIdx("full","full ml");
-
     if(iSku<0){ toast("No se encontró columna SKU.","err"); return; }
     if(iDep<0&&iFull<0){ toast("No se encontró columna de stock.","err"); return; }
 
     let actualizados=0, sinEncontrar=0;
     const promises=[];
-
+    const hoy=new Date().toISOString().split("T")[0];
     mostrarCargando(true);
+
     for(let i=1;i<lines.length;i++){
       const row=splitLine(lines[i]);
       if(!row[iSku]) continue;
@@ -2547,44 +2546,95 @@ async function importarStockCSV(input){
       const prod=productos.find(p=>p.sku.toUpperCase()===sku);
       if(!prod){ sinEncontrar++; continue; }
 
-      const hoy=new Date().toISOString().split("T")[0];
-
-      // Stock Depósito: calcular diferencia y generar ajuste
       if(iDep>=0 && row[iDep]!==undefined && row[iDep]!==""){
         const nuevoDep=parseInt(row[iDep])||0;
-        const actualDep=calcularStockDeposito(sku);
-        const diff=nuevoDep-actualDep;
+        const diff=nuevoDep-calcularStockDeposito(sku);
         if(diff!==0){
           const tipo=diff>0?"Ajuste+":"Ajuste-";
-          const mov={
-            fecha:hoy, tipo, sku, producto:prod.nombre,
-            cantidad:Math.abs(diff), costo:prod.costo||0, precio:prod.precio||0,
-            obs:"Ajuste stock por importación CSV", origen:""
-          };
+          const mov={fecha:hoy,tipo,sku,producto:prod.nombre,cantidad:Math.abs(diff),costo:prod.costo||0,precio:prod.precio||0,obs:"Ajuste stock CSV",origen:""};
           const saved=await sbGuardar("movimiento",mov).catch(()=>null);
           movimientos.unshift(Object.assign({},mov,saved||{}));
         }
       }
-
-      // Stock Full ML: reemplazar directo
       if(iFull>=0 && row[iFull]!==undefined && row[iFull]!==""){
         const nuevoFull=parseInt(row[iFull])||0;
         stockML[sku]=nuevoFull;
         promises.push(sbGuardar("stockml",{sku,cantidad:nuevoFull}).catch(()=>null));
       }
-
       actualizados++;
     }
-
     await Promise.all(promises);
-    guardarLS("movimientos"); // no-op pero por si acaso
     mostrarCargando(false);
-
     renderStock(); renderAlertas(); renderPanel(); renderMovimientos();
-    toast("Stock importado: "+actualizados+" producto"+(actualizados!==1?"s":"")+" actualizados"+(sinEncontrar?" · "+sinEncontrar+" SKU no encontrado"+(sinEncontrar!==1?"s":""):""),"ok",5000);
+    toast("Stock importado: "+actualizados+" producto"+(actualizados!==1?"s":"")+" actualizado"+(sinEncontrar?" · "+sinEncontrar+" SKU no encontrado":""),"ok",5000);
     input.value="";
   };
   reader.readAsText(file,"latin-1");
+}
+
+async function importarStockML(file){
+  try{
+    const data=await file.arrayBuffer();
+    const wb=XLSX.read(data,{type:"array"});
+
+    // Buscar hoja "Publicaciones"
+    const sheetName=wb.SheetNames.find(n=>n.toLowerCase().includes("publicacion"))||wb.SheetNames[0];
+    const ws=wb.Sheets[sheetName];
+    const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:""});
+
+    // Header en fila índice 2, datos desde índice 5
+    const headerRow=rows[2]||[];
+    const h=headerRow.map((v,i)=>({idx:i,val:String(v||"").toLowerCase()}));
+    const findCol=(...names)=>{ for(const n of names){ const f=h.find(c=>c.val.includes(n)); if(f) return f.idx; } return -1; };
+
+    const iSku=findCol("sku");
+    const iFull=findCol("stock en tu dep","stock en dep","quantity","stock");
+    const iPrecio=findCol("precio");
+
+    if(iSku<0||iFull<0){ toast("No se encontraron columnas SKU/Stock en la planilla ML.","err"); return; }
+
+    let actualizados=0, sinEncontrar=0, preciosAct=0;
+    const promises=[];
+    const skusVistos=new Set();
+
+    mostrarCargando(true);
+    for(let i=5;i<rows.length;i++){
+      const row=rows[i];
+      if(!row||!row[iSku]) continue;
+      const sku=String(row[iSku]).trim().toUpperCase();
+      if(!sku||sku==="-") continue;
+      if(skusVistos.has(sku)) continue;
+      skusVistos.add(sku);
+
+      const prod=productos.find(p=>p.sku.toUpperCase()===sku);
+      if(!prod){ sinEncontrar++; continue; }
+
+      const nuevoFull=parseInt(row[iFull])||0;
+      stockML[sku]=nuevoFull;
+      promises.push(sbGuardar("stockml",{sku,cantidad:nuevoFull}).catch(()=>null));
+
+      if(iPrecio>=0){
+        const nuevoPrecio=parseFloat(String(row[iPrecio]||"").replace(",","."))||0;
+        if(nuevoPrecio>0 && Math.abs(nuevoPrecio-prod.precio)>0.01){
+          prod.precio=nuevoPrecio;
+          promises.push(sbGuardar("producto",prod).catch(()=>null));
+          preciosAct++;
+        }
+      }
+      actualizados++;
+    }
+    await Promise.all(promises);
+    mostrarCargando(false);
+    renderStock(); renderAlertas(); renderPanel(); renderProductos(); renderAnalisis();
+    let msg="Planilla ML: "+actualizados+" producto"+(actualizados!==1?"s":"")+" · Stock Full ML actualizado";
+    if(preciosAct) msg+=" · "+preciosAct+" precio"+(preciosAct!==1?"s":"")+" ML actualizado"+(preciosAct!==1?"s":"");
+    if(sinEncontrar) msg+=" · "+sinEncontrar+" SKU no encontrado";
+    toast(msg,"ok",6000);
+  }catch(e){
+    mostrarCargando(false);
+    toast("Error leyendo planilla ML: "+e.message,"err",6000);
+    console.error(e);
+  }
 }
 
 
