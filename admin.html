@@ -2756,7 +2756,7 @@ async function importarCSV(input){
     };
 
     let nuevos=0, actualizados=0, errores=[];
-    const promises=[];
+    const objetos=[];
 
     for(let i=1;i<lines.length;i++){
       const row = splitLine(lines[i]);
@@ -2777,23 +2777,37 @@ async function importarCSV(input){
         precioTienda:limpiarNumCSV(get(row,"precio tienda","precio_tienda","preciotienda")),
         stockMin:    parseInt(get(row,"stock m","mín","min","stockmin"))||15,
         stockOn:     parseInt(get(row,"tienda (1","stockon")||"1"),
-        // Imagen: usar la del CSV si viene, si no preservar la existente
         img: imgCSV || (existing?existing.img||"":"")
       };
 
       if(existing){ Object.assign(existing,obj); actualizados++; }
       else { productos.push(obj); nuevos++; }
-      promises.push(sbGuardar("producto",obj).catch(err=>errores.push(sku+": "+err.message)));
+      objetos.push(obj);
     }
 
+    // Guardar en Supabase de a lotes de 10 para no saturar la API
     mostrarCargando(true);
-    await Promise.all(promises);
+    const LOTE=10;
+    for(let i=0;i<objetos.length;i+=LOTE){
+      const lote=objetos.slice(i,i+LOTE);
+      // Mostrar progreso en el overlay
+      const overlay=document.getElementById("loadingOverlay");
+      if(overlay) overlay.querySelector("span:last-child").textContent=
+        "Guardando productos... "+(Math.min(i+LOTE,objetos.length))+" / "+objetos.length;
+      await Promise.all(lote.map(o=>sbGuardar("producto",o).catch(err=>{
+        errores.push(o.sku+": "+err.message);
+        // Revertir del array local si falló
+        const idx=productos.findIndex(p=>p.sku===o.sku);
+        if(idx>=0) productos.splice(idx,1);
+      })));
+    }
     mostrarCargando(false);
 
     actualizarProvLists(); actualizarSkuList(); actualizarSkuListCompras();
     renderProductos(); renderPanel(); renderStock(); renderAlertas(); renderAnalisis();
     const msg = "Importación lista: "+nuevos+" nuevo"+(nuevos!==1?"s":"")+", "+actualizados+" actualizado"+(actualizados!==1?"s":"")+(errores.length?" · "+errores.length+" con error":"");
-    toast(msg, errores.length?"":"ok", 5000);
+    toast(msg, errores.length?"":"ok", 6000);
+    if(errores.length) console.warn("Errores importación:", errores);
     input.value="";
   };
   reader.readAsText(file, "latin-1"); // soporta caracteres especiales
