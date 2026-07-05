@@ -1031,6 +1031,62 @@ tr:hover td{background:#fafbfc;}
   </div>
 </div>
 
+
+<!-- Modal editar pedido -->
+<div class="overlay" id="modalPedido">
+  <div class="modal" style="max-width:640px;">
+    <h3>✏️ Editar pedido</h3>
+    <div style="margin-bottom:14px;">
+      <div class="form-grid" style="margin-bottom:12px;">
+        <div class="form-group">
+          <label>Cliente</label>
+          <input type="text" id="epNombre" placeholder="Nombre del cliente">
+        </div>
+        <div class="form-group">
+          <label>Observaciones</label>
+          <input type="text" id="epObs" placeholder="Entrega, pago, etc.">
+        </div>
+      </div>
+
+      <!-- Líneas del pedido -->
+      <div style="font-size:13px;font-weight:700;color:#0d2259;margin-bottom:8px;">Productos del pedido</div>
+      <div class="card" style="margin-bottom:12px;border:1.5px solid var(--border);">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>SKU</th><th>Producto</th><th>Cant.</th><th>Precio ($)</th><th>Subtotal</th><th></th></tr></thead>
+            <tbody id="epLineasBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Agregar producto -->
+      <div style="font-size:12px;font-weight:700;color:var(--text-soft);margin-bottom:8px;">Agregar producto</div>
+      <div style="display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;align-items:end;margin-bottom:4px;">
+        <div class="form-group" style="margin:0;">
+          <input type="text" id="epSku" list="skuList" placeholder="SKU" autocomplete="off" oninput="autocompletarEpSku(this.value)">
+        </div>
+        <div class="form-group" style="margin:0;">
+          <input type="number" id="epCant" placeholder="Cant." min="1">
+        </div>
+        <div class="form-group" style="margin:0;">
+          <input type="number" id="epPrecio" placeholder="Precio ($)">
+        </div>
+        <button class="btn btn-primary" style="height:38px;" onclick="agregarLineaEp()">+ Agregar</button>
+      </div>
+      <div id="epSkuNombre" style="font-size:11px;color:var(--text-soft);min-height:16px;"></div>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#f0f4ff;border-radius:8px;margin-bottom:16px;">
+      <span style="font-weight:700;color:#0d2259;">Total: <span id="epTotal">$0</span></span>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="cerrarModalPedido()">Cancelar</button>
+      <button class="btn btn-success" onclick="guardarPedidoEditado()">💾 Guardar cambios</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal confirmar -->
 <div class="overlay" id="modalConfirm">
   <div class="modal modal-sm">
@@ -3045,6 +3101,7 @@ function renderPedidos(){
         <div class="btn-group">
           <button class="btn btn-ghost btn-sm" onclick="verDetallePedido(${p.id})" title="Ver detalle">🔍</button>
           ${esAdmin()?`
+          <button class="btn btn-ghost btn-sm" onclick="editarPedido(${p.id})" title="Editar pedido" ${p.estado==="procesado"?"disabled":""}>✏️</button>
           <button class="btn btn-success btn-sm" onclick="convertirPedidoVenta(${p.id})" title="Convertir en venta tienda" ${p.estado==="procesado"?"disabled":""}>✔ Procesar</button>
           <button class="btn btn-danger btn-sm" onclick="cancelarPedido(${p.id})" title="Cancelar">✕</button>
           `:""}
@@ -3166,6 +3223,120 @@ async function cancelarPedido(id){
   document.getElementById("confirmBtn").style.background="var(--red)";
   document.getElementById("confirmMsg").innerHTML=`¿Cancelar el pedido de <strong>${esc(p.nombre||"")}</strong>?`;
   document.getElementById("modalConfirm").classList.add("show");
+}
+
+
+// ── Editar pedido ──
+let epId = null;
+let epLineas = [];
+
+function editarPedido(id){
+  if(checkViewer("Editar pedidos")) return;
+  const p = pedidos.find(x=>x.id===id);
+  if(!p) return;
+  epId = id;
+  epLineas = JSON.parse(JSON.stringify(p.items||[])); // copia profunda
+
+  document.getElementById("epNombre").value = p.nombre||"";
+  document.getElementById("epObs").value = p.observaciones||"";
+  document.getElementById("epSku").value = "";
+  document.getElementById("epCant").value = "";
+  document.getElementById("epPrecio").value = "";
+  document.getElementById("epSkuNombre").textContent = "";
+  renderLineasEp();
+  document.getElementById("modalPedido").classList.add("show");
+}
+
+function cerrarModalPedido(){
+  document.getElementById("modalPedido").classList.remove("show");
+  epId = null; epLineas = [];
+}
+document.getElementById("modalPedido").addEventListener("click", function(e){
+  if(e.target===e.currentTarget) cerrarModalPedido();
+});
+
+function autocompletarEpSku(val){
+  const p = productos.find(x=>x.sku.toUpperCase()===val.toUpperCase().trim());
+  document.getElementById("epSkuNombre").textContent = p ? p.nombre : "";
+  if(p && !document.getElementById("epPrecio").value)
+    document.getElementById("epPrecio").value = p.precioTienda||p.precio||"";
+}
+
+function agregarLineaEp(){
+  const sku = document.getElementById("epSku").value.trim().toUpperCase();
+  const cant = parseInt(document.getElementById("epCant").value)||0;
+  const precio = parseFloat(document.getElementById("epPrecio").value)||0;
+  if(!sku){ toast("Ingresá un SKU.","err"); return; }
+  if(!cant){ toast("Ingresá la cantidad.","err"); return; }
+  const p = productos.find(x=>x.sku.toUpperCase()===sku);
+  // Si ya existe el SKU, sumar cantidad
+  const existing = epLineas.find(l=>l.sku.toUpperCase()===sku);
+  if(existing){ existing.cantidad += cant; }
+  else { epLineas.push({ sku, nombre:p?p.nombre:"", cantidad:cant, precio:precio||(p?p.precio:0) }); }
+  document.getElementById("epSku").value = "";
+  document.getElementById("epCant").value = "";
+  document.getElementById("epPrecio").value = "";
+  document.getElementById("epSkuNombre").textContent = "";
+  renderLineasEp();
+}
+
+function eliminarLineaEp(i){
+  epLineas.splice(i,1);
+  renderLineasEp();
+}
+
+function cambiarCantidadEp(i, val){
+  const v = parseInt(val)||0;
+  if(v<=0){ epLineas.splice(i,1); }
+  else { epLineas[i].cantidad = v; }
+  renderLineasEp();
+}
+
+function renderLineasEp(){
+  const total = epLineas.reduce((a,l)=>a+(l.precio||0)*(l.cantidad||0),0);
+  document.getElementById("epTotal").textContent = "$"+fmt(total);
+  document.getElementById("epLineasBody").innerHTML = epLineas.length
+    ? epLineas.map((l,i)=>`<tr>
+        <td><span class="sku-tag">${esc(l.sku)}</span></td>
+        <td style="max-width:160px;">${esc(l.nombre||"")}</td>
+        <td><input type="number" value="${l.cantidad}" min="1" style="width:60px;padding:4px;border:1px solid var(--border);border-radius:5px;font-size:12px;"
+          onchange="cambiarCantidadEp(${i},this.value)"></td>
+        <td class="num">$${fmt(l.precio)}</td>
+        <td class="num" style="font-weight:700;">$${fmt((l.precio||0)*(l.cantidad||0))}</td>
+        <td><button class="btn btn-danger btn-sm" onclick="eliminarLineaEp(${i})">✕</button></td>
+      </tr>`).join("")
+    : `<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--text-soft);">Sin productos.</td></tr>`;
+}
+
+async function guardarPedidoEditado(){
+  if(!epId) return;
+  if(!epLineas.length){ toast("El pedido debe tener al menos un producto.","err"); return; }
+  const p = pedidos.find(x=>x.id===epId);
+  if(!p) return;
+
+  const total = epLineas.reduce((a,l)=>a+(l.precio||0)*(l.cantidad||0),0);
+  const updates = {
+    nombre: document.getElementById("epNombre").value.trim(),
+    observaciones: document.getElementById("epObs").value.trim(),
+    items: epLineas,
+    total: total
+  };
+
+  mostrarCargando(true);
+  try{
+    await fetch(SB_URL+"/rest/v1/pedidos?id=eq."+epId, {
+      method:"PATCH",
+      headers:{"apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY,"Content-Type":"application/json","Prefer":"return=minimal"},
+      body: JSON.stringify({nombre:updates.nombre, observaciones:updates.observaciones, items:updates.items, total:updates.total})
+    });
+    Object.assign(p, updates);
+    cerrarModalPedido();
+    renderPedidos();
+    toast("Pedido actualizado ✅","ok");
+  }catch(e){
+    toast("Error guardando: "+e.message,"err");
+  }
+  mostrarCargando(false);
 }
 
 // ── Sidebar mobile ──
