@@ -1961,6 +1961,11 @@ function renderLineasCompra(){
 
 async function guardarCompra(){
   if(checkViewer("Registrar compras")) return;
+  // Prevenir doble submit
+  const btn = document.querySelector("#sec-compras .btn-success");
+  if(btn && btn.disabled) return;
+  if(btn){ btn.disabled=true; btn.textContent="Guardando…"; }
+
   const fecha = document.getElementById("cFecha").value;
   const proveedor = document.getElementById("cProveedor").value.trim().toUpperCase();
   const factura = document.getElementById("cFactura").value.trim();
@@ -1999,7 +2004,11 @@ async function guardarCompra(){
     const savedCC=await sbGuardar("cc",ccData);
     cuentaCorriente.unshift(Object.assign({},ccData,savedCC||{}));
     compras.unshift(compra);
-  }catch(e){ toast("Error guardando compra: "+e.message,"err"); return; }
+  }catch(e){
+    const btnE = document.querySelector("#sec-compras .btn-success");
+    if(btnE){ btnE.disabled=false; btnE.textContent="✔ Confirmar compra"; }
+    toast("Error guardando compra: "+e.message,"err"); return;
+  }
 
   // 4. Limpiar formulario
   lineasCompra = [];
@@ -2008,6 +2017,9 @@ async function guardarCompra(){
   document.getElementById("cFactura").value="";
   document.getElementById("cObs").value="";
   document.getElementById("cFormaPago").value="A pagar";
+  // Re-habilitar botón
+  const btnC = document.querySelector("#sec-compras .btn-success");
+  if(btnC){ btnC.disabled=false; btnC.textContent="✔ Confirmar compra"; }
 
   // 5. Refrescar todo
   actualizarProvLists();
