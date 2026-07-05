@@ -587,45 +587,128 @@ tr:hover td{background:#fafbfc;}
         <div><h2>Cuenta Corriente Proveedores</h2><div class="sub">Compras y pagos por proveedor</div></div>
       </div>
       <div style="padding:24px;">
-        <!-- Resumen -->
+
+        <!-- Resumen por proveedor -->
         <div class="stats-grid" id="provResumen" style="margin-bottom:20px;"></div>
-        <!-- Formulario -->
-        <div class="card" style="margin-bottom:20px;">
-          <div class="card-header"><h3>Registrar movimiento</h3></div>
+
+        <!-- PAGAR FACTURA -->
+        <div class="card admin-only" style="margin-bottom:20px;background:#f0fdf4;border:1.5px solid #bbf7d0;">
+          <div class="card-header" style="background:#f0fdf4;">
+            <h3 style="color:var(--green);">💳 Registrar pago de factura</h3>
+          </div>
           <div style="padding:16px;">
-            <div class="form-grid" style="margin-bottom:12px;">
+            <div class="form-grid cols3" style="margin-bottom:14px;">
               <div class="form-group">
-                <label>Fecha</label>
-                <input type="date" id="ccFecha">
-              </div>
-              <div class="form-group">
-                <label>Tipo</label>
-                <select id="ccTipo">
-                  <option value="Compra">🛍️ Compra (deuda)</option>
-                  <option value="Pago">💳 Pago</option>
-                </select>
+                <label>Fecha del pago</label>
+                <input type="date" id="pagoFecha">
               </div>
               <div class="form-group">
                 <label>Proveedor</label>
-                <input type="text" id="ccProveedor" list="provList" placeholder="Ej: ANTHAY" autocomplete="off">
-                <datalist id="provList"></datalist>
+                <select id="pagoProveedor" onchange="cargarFacturasDeudoras(this.value)" style="padding:9px 11px;border:1.5px solid var(--border);border-radius:7px;font-size:13px;">
+                  <option value="">— Seleccioná proveedor —</option>
+                </select>
               </div>
               <div class="form-group">
-                <label>Nro. Factura</label>
-                <input type="text" id="ccFactura" placeholder="Opcional">
-              </div>
-              <div class="form-group">
-                <label>Descripción</label>
-                <input type="text" id="ccDesc" placeholder="Ej: Lote PR2 x50">
-              </div>
-              <div class="form-group">
-                <label>Importe ($)</label>
-                <input type="number" id="ccImporte" placeholder="0">
+                <label>Factura a pagar</label>
+                <select id="pagoFactura" onchange="seleccionarFactura(this.value)" style="padding:9px 11px;border:1.5px solid var(--border);border-radius:7px;font-size:13px;">
+                  <option value="">— Seleccioná factura —</option>
+                </select>
               </div>
             </div>
-            <button class="btn btn-primary" onclick="registrarCC()">✔ Registrar</button>
+
+            <!-- Detalle deuda seleccionada -->
+            <div id="pagoDeudaInfo" style="display:none;padding:10px 14px;background:#fff;border:1.5px solid #bbf7d0;border-radius:8px;margin-bottom:14px;font-size:13px;">
+              <span id="pagoDeudaTexto"></span>
+            </div>
+
+            <!-- Métodos de pago (1 o 2) -->
+            <div style="font-size:12px;font-weight:700;color:#0d2259;margin-bottom:8px;">Forma de pago <span style="font-weight:400;color:var(--text-soft);">(podés combinar dos métodos)</span></div>
+            <div class="form-grid" style="margin-bottom:8px;">
+              <div class="form-group">
+                <label>Método 1</label>
+                <select id="pagoMetodo1" onchange="calcularPagoTotal()">
+                  <option value="Efectivo">💵 Efectivo</option>
+                  <option value="Transferencia">🏦 Transferencia</option>
+                  <option value="Cheque">📄 Cheque</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Monto método 1 ($)</label>
+                <input type="number" id="pagoMonto1" placeholder="0" oninput="calcularPagoTotal()">
+              </div>
+            </div>
+
+            <!-- Método 2 opcional -->
+            <div style="margin-bottom:12px;">
+              <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;">
+                <input type="checkbox" id="pagoUsaMetodo2" onchange="toggleMetodo2()"> Agregar segundo método de pago
+              </label>
+            </div>
+            <div id="pagoMetodo2Wrap" style="display:none;" class="form-grid" style="margin-bottom:12px;">
+              <div class="form-group">
+                <label>Método 2</label>
+                <select id="pagoMetodo2" onchange="calcularPagoTotal()">
+                  <option value="Transferencia">🏦 Transferencia</option>
+                  <option value="Efectivo">💵 Efectivo</option>
+                  <option value="Cheque">📄 Cheque</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Monto método 2 ($)</label>
+                <input type="number" id="pagoMonto2" placeholder="0" oninput="calcularPagoTotal()">
+              </div>
+            </div>
+
+            <!-- Resumen pago -->
+            <div style="display:flex;align-items:center;gap:20px;padding:10px 14px;background:#fff;border-radius:8px;border:1.5px solid #bbf7d0;margin-bottom:14px;font-size:13px;">
+              <span>Total a pagar: <strong id="pagoTotalDisplay" style="color:var(--green);font-size:15px;">$0</strong></span>
+              <span id="pagoSaldoRestante" style="color:var(--text-soft);"></span>
+            </div>
+
+            <button class="btn btn-success" onclick="registrarPagoFactura()" style="padding:10px 24px;">💳 Registrar pago</button>
           </div>
         </div>
+
+        <!-- Registrar movimiento manual -->
+        <details style="margin-bottom:20px;">
+          <summary style="cursor:pointer;font-size:13px;font-weight:600;color:var(--text-soft);padding:10px 0;">⚙️ Registrar movimiento manual</summary>
+          <div class="card" style="margin-top:10px;">
+            <div style="padding:16px;">
+              <div class="form-grid" style="margin-bottom:12px;">
+                <div class="form-group">
+                  <label>Fecha</label>
+                  <input type="date" id="ccFecha">
+                </div>
+                <div class="form-group">
+                  <label>Tipo</label>
+                  <select id="ccTipo">
+                    <option value="Compra">🛍️ Compra (deuda)</option>
+                    <option value="Pago">💳 Pago</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Proveedor</label>
+                  <input type="text" id="ccProveedor" list="provList" placeholder="Ej: ANTHAY" autocomplete="off">
+                  <datalist id="provList"></datalist>
+                </div>
+                <div class="form-group">
+                  <label>Nro. Factura</label>
+                  <input type="text" id="ccFactura" placeholder="Opcional">
+                </div>
+                <div class="form-group">
+                  <label>Descripción</label>
+                  <input type="text" id="ccDesc" placeholder="Ej: Lote PR2 x50">
+                </div>
+                <div class="form-group">
+                  <label>Importe ($)</label>
+                  <input type="number" id="ccImporte" placeholder="0">
+                </div>
+              </div>
+              <button class="btn btn-primary" onclick="registrarCC()">✔ Registrar</button>
+            </div>
+          </div>
+        </details>
+
         <!-- Historial -->
         <div class="card">
           <div class="card-header">
@@ -675,9 +758,8 @@ tr:hover td{background:#fafbfc;}
               <div class="form-group">
                 <label>Forma de pago</label>
                 <select id="cFormaPago">
-                  <option value="A pagar">💳 A pagar (deuda)</option>
-                  <option value="Efectivo">💵 Efectivo (pagado)</option>
-                  <option value="Transferencia">🏦 Transferencia (pagado)</option>
+                  <option value="Efectivo">💵 Efectivo</option>
+                  <option value="Transferencia">🏦 Transferencia</option>
                   <option value="Cheque">📄 Cheque</option>
                 </select>
               </div>
@@ -1240,6 +1322,7 @@ async function iniciar(){
   const hoy = new Date().toISOString().split("T")[0];
   document.getElementById("mFecha").value = hoy;
   document.getElementById("ccFecha").value = hoy;
+  if(document.getElementById("pagoFecha")) document.getElementById("pagoFecha").value = hoy;
   document.getElementById("cFecha").value = hoy;
   if(document.getElementById("vtFecha")) document.getElementById("vtFecha").value = hoy;
   if(document.getElementById("mlFechaDefault")) document.getElementById("mlFechaDefault").value = hoy;
@@ -1317,7 +1400,7 @@ async function sbGuardar(tipo, data){
     if(tipo==="cc")            { await sbInsert("cuenta_corriente", data); }
     if(tipo==="deleteCc")      { await sbDelete("cuenta_corriente","id=eq."+data); }
     if(tipo==="stockml")       { await sbUpsert("stock_ml",{sku:data.sku,cantidad:data.cantidad,updated_at:new Date().toISOString()}); }
-    if(tipo==="compra")        { await sbUpsert("compras",Object.assign({},data,{lineas:JSON.stringify(data.lineas)})); }
+    if(tipo==="compra")        { const r=await sbInsert("compras",Object.assign({},data,{lineas:JSON.stringify(data.lineas)})); return r; }
     if(tipo==="deleteCompra")  { await sbDelete("compras","id=eq."+data); }
     if(tipo==="venta")         { const r=await sbInsert("ventas",data); return r; }
     if(tipo==="deleteVenta")   { await sbDelete("ventas","id=eq."+data); }
@@ -1770,6 +1853,7 @@ function actualizarProvLists(){
   document.getElementById("provList").innerHTML=opts;
   document.getElementById("provListProd").innerHTML=opts;
   if(document.getElementById("cProvList")) document.getElementById("cProvList").innerHTML=opts;
+  actualizarProvSelectPago();
 }
 function calcularSaldoProv(prov){
   let saldo=0;
@@ -1959,11 +2043,12 @@ function renderLineasCompra(){
     </tr>`).join("");
 }
 
+let _guardandoCompra = false;
 async function guardarCompra(){
   if(checkViewer("Registrar compras")) return;
-  // Prevenir doble submit
+  if(_guardandoCompra){ toast("Espera, guardando...","err"); return; }
+  _guardandoCompra = true;
   const btn = document.querySelector("#sec-compras .btn-success");
-  if(btn && btn.disabled) return;
   if(btn){ btn.disabled=true; btn.textContent="Guardando…"; }
 
   const fecha = document.getElementById("cFecha").value;
@@ -2005,6 +2090,7 @@ async function guardarCompra(){
     cuentaCorriente.unshift(Object.assign({},ccData,savedCC||{}));
     compras.unshift(compra);
   }catch(e){
+    _guardandoCompra = false;
     const btnE = document.querySelector("#sec-compras .btn-success");
     if(btnE){ btnE.disabled=false; btnE.textContent="✔ Confirmar compra"; }
     toast("Error guardando compra: "+e.message,"err"); return;
@@ -2018,6 +2104,7 @@ async function guardarCompra(){
   document.getElementById("cObs").value="";
   document.getElementById("cFormaPago").value="A pagar";
   // Re-habilitar botón
+  _guardandoCompra = false;
   const btnC = document.querySelector("#sec-compras .btn-success");
   if(btnC){ btnC.disabled=false; btnC.textContent="✔ Confirmar compra"; }
 
@@ -3374,6 +3461,133 @@ async function guardarPedidoEditado(){
   }catch(e){
     toast("Error guardando: "+e.message,"err");
   }
+  mostrarCargando(false);
+}
+
+
+// ── Pago de factura ──
+function actualizarProvSelectPago(){
+  const sel = document.getElementById("pagoProveedor");
+  if(!sel) return;
+  const provs = getProveedores();
+  sel.innerHTML = '<option value="">— Seleccioná proveedor —</option>' +
+    provs.map(p=>`<option value="${esc(p)}">${esc(p)}</option>`).join("");
+}
+
+function cargarFacturasDeudoras(prov){
+  const sel = document.getElementById("pagoFactura");
+  document.getElementById("pagoDeudaInfo").style.display="none";
+  document.getElementById("pagoTotalDisplay").textContent="$0";
+  document.getElementById("pagoSaldoRestante").textContent="";
+  if(!prov){ sel.innerHTML='<option value="">— Seleccioná factura —</option>'; return; }
+
+  // Buscar compras de este proveedor con saldo pendiente
+  const facturasConDeuda = {};
+  for(const m of cuentaCorriente){
+    if(m.proveedor.toUpperCase()!==prov.toUpperCase()) continue;
+    const key = m.factura||m.descripcion||m.id;
+    if(!facturasConDeuda[key]) facturasConDeuda[key]={factura:m.factura||"s/n", descripcion:m.descripcion||"", saldo:0, importe:0};
+    if(m.tipo==="Compra") facturasConDeuda[key].saldo+=Number(m.importe)||0;
+    if(m.tipo==="Pago")   facturasConDeuda[key].saldo-=Number(m.importe)||0;
+  }
+
+  const conDeuda = Object.entries(facturasConDeuda).filter(([k,v])=>v.saldo>0.01);
+  if(!conDeuda.length){
+    sel.innerHTML='<option value="">✅ Sin deuda pendiente</option>';
+    return;
+  }
+  sel.innerHTML = '<option value="">— Seleccioná factura —</option>' +
+    conDeuda.map(([k,v])=>
+      `<option value="${esc(k)}" data-saldo="${v.saldo}">${esc(v.factura)} — $${fmt(v.saldo)} pendiente</option>`
+    ).join("");
+}
+
+function seleccionarFactura(key){
+  const opt = document.querySelector(`#pagoFactura option[value="${CSS.escape(key)}"]`);
+  const info = document.getElementById("pagoDeudaInfo");
+  if(!key||!opt){ info.style.display="none"; return; }
+  const saldo = parseFloat(opt.dataset.saldo)||0;
+  info.style.display="block";
+  document.getElementById("pagoDeudaTexto").innerHTML =
+    `Deuda pendiente factura <strong>${esc(key)}</strong>: <strong style="color:var(--red);">$${fmt(saldo)}</strong>`;
+  // Pre-llenar monto1 con el total de la deuda
+  document.getElementById("pagoMonto1").value = saldo;
+  calcularPagoTotal();
+}
+
+function toggleMetodo2(){
+  const wrap = document.getElementById("pagoMetodo2Wrap");
+  const usa = document.getElementById("pagoUsaMetodo2").checked;
+  wrap.style.display = usa ? "grid" : "none";
+  if(!usa){ document.getElementById("pagoMonto2").value=""; }
+  calcularPagoTotal();
+}
+
+function calcularPagoTotal(){
+  const m1 = parseFloat(document.getElementById("pagoMonto1").value)||0;
+  const usaM2 = document.getElementById("pagoUsaMetodo2").checked;
+  const m2 = usaM2 ? (parseFloat(document.getElementById("pagoMonto2").value)||0) : 0;
+  const total = m1+m2;
+  document.getElementById("pagoTotalDisplay").textContent = "$"+fmt(total);
+
+  // Mostrar saldo restante
+  const key = document.getElementById("pagoFactura").value;
+  const opt = document.querySelector(`#pagoFactura option[value="${CSS.escape(key)}"]`);
+  if(opt){
+    const deuda = parseFloat(opt.dataset.saldo)||0;
+    const resto = deuda-total;
+    const el = document.getElementById("pagoSaldoRestante");
+    if(Math.abs(resto)<0.01) el.innerHTML="<span style='color:var(--green);'>✅ Saldo = $0</span>";
+    else if(resto>0) el.innerHTML="<span style='color:var(--orange);'>Queda pendiente: $"+fmt(resto)+"</span>";
+    else el.innerHTML="<span style='color:var(--red);'>⚠️ Excede la deuda en $"+fmt(Math.abs(resto))+"</span>";
+  }
+}
+
+async function registrarPagoFactura(){
+  if(checkViewer("Registrar pagos")) return;
+  const fecha = document.getElementById("pagoFecha").value;
+  const prov = document.getElementById("pagoProveedor").value;
+  const factKey = document.getElementById("pagoFactura").value;
+  const m1 = parseFloat(document.getElementById("pagoMonto1").value)||0;
+  const met1 = document.getElementById("pagoMetodo1").value;
+  const usaM2 = document.getElementById("pagoUsaMetodo2").checked;
+  const m2 = usaM2 ? (parseFloat(document.getElementById("pagoMonto2").value)||0) : 0;
+  const met2 = document.getElementById("pagoMetodo2").value;
+
+  if(!fecha){ toast("Ingresá la fecha.","err"); return; }
+  if(!prov){ toast("Seleccioná el proveedor.","err"); return; }
+  if(!factKey){ toast("Seleccioná la factura.","err"); return; }
+  if(!m1&&!m2){ toast("Ingresá al menos un monto.","err"); return; }
+
+  const pagoDesc = usaM2&&m2>0
+    ? `Pago factura ${factKey} · ${met1} $${fmt(m1)} + ${met2} $${fmt(m2)}`
+    : `Pago factura ${factKey} · ${met1}`;
+  const totalPago = m1+m2;
+  const formaPago = usaM2&&m2>0 ? `${met1} + ${met2}` : met1;
+
+  mostrarCargando(true);
+  try{
+    const ccData = {
+      fecha, tipo:"Pago", proveedor:prov, factura:factKey,
+      descripcion:pagoDesc, importe:totalPago, formaPago
+    };
+    const saved = await sbGuardar("cc", ccData);
+    cuentaCorriente.unshift(Object.assign({},ccData,saved||{}));
+
+    // Limpiar form
+    document.getElementById("pagoProveedor").value="";
+    document.getElementById("pagoFactura").innerHTML='<option value="">— Seleccioná factura —</option>';
+    document.getElementById("pagoMonto1").value="";
+    document.getElementById("pagoMonto2").value="";
+    document.getElementById("pagoUsaMetodo2").checked=false;
+    document.getElementById("pagoMetodo2Wrap").style.display="none";
+    document.getElementById("pagoDeudaInfo").style.display="none";
+    document.getElementById("pagoTotalDisplay").textContent="$0";
+    document.getElementById("pagoSaldoRestante").textContent="";
+
+    renderCC();
+    toast(`Pago registrado: $${fmt(totalPago)} · ${formaPago} ✅`,"ok",4000);
+  }catch(e){ toast("Error: "+e.message,"err"); }
   mostrarCargando(false);
 }
 
