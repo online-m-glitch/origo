@@ -921,11 +921,17 @@ tr:hover td{background:#fafbfc;}
           <div class="card-header">
             <h3>Listado de pedidos</h3>
             <div class="toolbar">
+              <input class="search-input" type="text" id="pedidoBuscar" placeholder="Buscar cliente…" oninput="renderPedidos()">
               <select id="pedidoFiltro" onchange="renderPedidos()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
-                <option value="">Todos</option>
+                <option value="">Todos los estados</option>
                 <option value="pendiente">🟡 Pendiente</option>
                 <option value="procesado">🟢 Procesado</option>
                 <option value="cancelado">🔴 Cancelado</option>
+              </select>
+              <select id="pedidoEnvio" onchange="renderPedidos()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                <option value="">Todos los envíos</option>
+                <option value="Retiro">🏪 Retiro</option>
+                <option value="Envío">🚚 Envío</option>
               </select>
             </div>
           </div>
@@ -3074,8 +3080,15 @@ async function recargarPedidos(){
 }
 
 function renderPedidos(){
-  const filtro = document.getElementById("pedidoFiltro")?.value||"";
-  const lista = pedidos.filter(p=>!filtro||p.estado===filtro);
+  const filtro  = document.getElementById("pedidoFiltro")?.value||"";
+  const envio   = document.getElementById("pedidoEnvio")?.value||"";
+  const buscar  = (document.getElementById("pedidoBuscar")?.value||"").toLowerCase().trim();
+  const lista = pedidos.filter(p=>{
+    if(filtro && p.estado!==filtro) return false;
+    if(envio && !(p.observaciones||"").includes(envio)) return false;
+    if(buscar && !(p.nombre||"").toLowerCase().includes(buscar)) return false;
+    return true;
+  });
   const tbody = document.getElementById("pedidosBody");
   const empty = document.getElementById("pedidosEmpty");
 
