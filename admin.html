@@ -459,6 +459,7 @@ tr:hover td{background:#fafbfc;}
         <div class="card">
           <div class="card-header">
             <div class="toolbar">
+              <input class="search-input" type="text" id="stockBuscar" placeholder="Buscar SKU o nombre…" oninput="renderStock()">
               <button class="btn btn-ghost" onclick="exportarStockCSV()">⬇️ Exportar stock CSV</button>
               <label class="btn btn-ghost admin-only" style="cursor:pointer;" title="Importar stock desde CSV">
                 ⬆️ Importar stock CSV / ML
@@ -486,6 +487,10 @@ tr:hover td{background:#fafbfc;}
       </div>
       <div style="padding:24px;">
         <div class="card">
+          <div class="card-header">
+            <h3>Productos a reponer</h3>
+            <input class="search-input" type="text" id="alertasBuscar" placeholder="Buscar SKU o nombre…" oninput="renderAlertas()">
+          </div>
           <div class="table-wrap">
             <table>
               <thead><tr><th>SKU</th><th>Producto</th><th>Proveedor</th><th>Stock</th><th>Mín</th><th>Diferencia</th><th>Costo repo ($)</th><th>Estado</th></tr></thead>
@@ -1586,7 +1591,11 @@ function confirmarElimProd(idx){
 // STOCK
 // ================================================================
 function renderStock(){
-  const rows = productos.map(p=>{
+  const q=(document.getElementById("stockBuscar")?.value||"").toLowerCase().trim();
+  const lista = q ? productos.filter(p=>
+    p.sku.toLowerCase().includes(q) || (p.nombre||"").toLowerCase().includes(q) || (p.proveedor||"").toLowerCase().includes(q)
+  ) : productos;
+  const rows = lista.map(p=>{
     const dep=calcularStockDeposito(p.sku);
     const full=calcularStockFullML(p.sku);
     const total=dep+full;
@@ -1614,7 +1623,7 @@ function renderStock(){
       <td><span class="badge ${cls}">${estado}</span></td>
     </tr>`;
   });
-  document.getElementById("stockBody").innerHTML = rows.join("") || `<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-soft);">Sin productos.</td></tr>`;
+  document.getElementById("stockBody").innerHTML = rows.join("") || `<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--text-soft);">${q?"Sin resultados para '"+q+"'.":"Sin productos."}</td></tr>`;
 }
 async function guardarAjusteFullML(sku){
   if(checkViewer("Ajustar stock Full ML")) return;
@@ -1638,10 +1647,14 @@ async function guardarAjusteFullML(sku){
 // ALERTAS
 // ================================================================
 function renderAlertas(){
+  const q=(document.getElementById("alertasBuscar")?.value||"").toLowerCase().trim();
   const alertas = productos.filter(p=>{
     const dep=calcularStockDeposito(p.sku);
     const full=calcularStockFullML(p.sku);
-    return (dep+full)<(p.stockMin||0);
+    const bajoMin=(dep+full)<(p.stockMin||0);
+    if(!bajoMin) return false;
+    if(!q) return true;
+    return p.sku.toLowerCase().includes(q)||(p.nombre||"").toLowerCase().includes(q)||(p.proveedor||"").toLowerCase().includes(q);
   }).sort((a,b)=>{
     const sa=(calcularStockDeposito(a.sku)+calcularStockFullML(a.sku));
     const sb=(calcularStockDeposito(b.sku)+calcularStockFullML(b.sku));
