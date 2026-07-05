@@ -1020,10 +1020,19 @@ ${descLine}*TOTAL: ${fmt(total)}*${envioNote}`;
   window.open(url, "_blank");
 
   // Guardar pedido en Supabase
-  const items = skus.map(sku=>{
+  const pedidoItems = skus.map(sku=>{
     const p = productos.find(x=>x.sku===sku);
-    return { sku, nombre:p?p.nombre:'', cantidad:cart[sku], precio:p?p.precio:0 };
+    return { sku: sku, nombre: p?p.nombre:'', cantidad: cart[sku], precio: p?p.precio:0 };
   });
+  const pedidoBody = {
+    fecha: new Date().toISOString().split('T')[0],
+    nombre: document.getElementById("custName").value.trim(),
+    telefono: '',
+    observaciones: 'Entrega: '+entrega.value+(direccion?' · '+direccion:'')+' | Pago: '+pago.value,
+    items: pedidoItems,
+    total: total,
+    estado: 'pendiente'
+  };
   fetch('https://piqkwewxbjumyqwtmnxn.supabase.co/rest/v1/pedidos', {
     method: 'POST',
     headers: {
@@ -1032,16 +1041,11 @@ ${descLine}*TOTAL: ${fmt(total)}*${envioNote}`;
       'Content-Type': 'application/json',
       'Prefer': 'return=minimal'
     },
-    body: JSON.stringify({
-      fecha: new Date().toISOString().split('T')[0],
-      nombre: name,
-      telefono: '',
-      observaciones: 'Entrega: '+entrega.value+(direccion?' · '+direccion:'')+' | Pago: '+pago.value,
-      items: items,
-      total: total,
-      estado: 'pendiente'
-    })
-  }).catch(function(){}); // silencioso si falla
+    body: JSON.stringify(pedidoBody)
+  }).then(function(r){
+    if(!r.ok) r.text().then(function(t){ console.error('Error Supabase pedido:', t); });
+    else console.log('Pedido guardado en Supabase OK');
+  }).catch(function(e){ console.error('Fetch error pedido:', e); });
 }
 
 // Init
