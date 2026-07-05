@@ -2051,30 +2051,40 @@ async function guardarCompra(){
   const btn = document.querySelector("#sec-compras .btn-success");
   if(btn){ btn.disabled=true; btn.textContent="Guardando…"; }
 
+  const resetBtn = ()=>{
+    _guardandoCompra = false;
+    const b = document.querySelector("#sec-compras .btn-success");
+    if(b){ b.disabled=false; b.textContent="✔ Confirmar compra"; }
+  };
+
   const fecha = document.getElementById("cFecha").value;
   const proveedor = document.getElementById("cProveedor").value.trim().toUpperCase();
   const factura = document.getElementById("cFactura").value.trim();
   const obs = document.getElementById("cObs").value.trim();
   const formaPago = document.getElementById("cFormaPago").value;
 
-  if(!fecha){ toast("Ingresá la fecha.","err"); return; }
-  if(!proveedor){ toast("Ingresá el proveedor.","err"); return; }
-  if(!lineasCompra.length){ toast("Agregá al menos un producto al remito.","err"); return; }
+  if(!fecha){ resetBtn(); toast("Ingresá la fecha.","err"); return; }
+  if(!proveedor){ resetBtn(); toast("Ingresá el proveedor.","err"); return; }
+  if(!lineasCompra.length){ resetBtn(); toast("Agregá al menos un producto al remito.","err"); return; }
 
   const total = lineasCompra.reduce((a,l)=>a+(l.cantidad*l.costo),0);
+  const lineasCopia = [...lineasCompra];
 
-  // 1. Guardar la compra
   const compra = {
     id: Date.now(),
     fecha, proveedor, factura, obs, formaPago, total,
-    lineas: [...lineasCompra]
+    lineas: lineasCopia
   };
-  compras.unshift(compra);
+
   try{
+    // 1. Guardar compra en Supabase
     await sbGuardar("compra", compra);
 
-    // 2. Generar Ingresos en Movimientos
-    for(const l of lineasCompra){
+    // 2. Agregar a estado local (UNA sola vez, acá)
+    compras.unshift(compra);
+
+    // 3. Generar Ingresos en Movimientos
+    for(const l of lineasCopia){
       const p=productos.find(x=>x.sku.toUpperCase()===l.sku);
       const mov={fecha, tipo:"Ingreso", sku:l.sku, producto:l.producto, cantidad:l.cantidad,
         costo:l.costo, precio:p?p.precio:0, obs:"Compra "+(factura||"s/n")+" · "+proveedor, origen:""};
@@ -2082,37 +2092,31 @@ async function guardarCompra(){
       movimientos.unshift(Object.assign({},mov,saved||{}));
     }
 
-    // 3. Registrar en Cuenta Corriente
+    // 4. Registrar en Cuenta Corriente
     const ccData={fecha, tipo:"Compra", proveedor, factura,
-      descripcion:lineasCompra.length+" producto"+(lineasCompra.length>1?"s":"")+" · "+(obs||factura||"Remito"),
+      descripcion:lineasCopia.length+" producto"+(lineasCopia.length>1?"s":"")+" · "+(obs||factura||"Remito"),
       importe:total, formaPago, compraId:compra.id};
     const savedCC=await sbGuardar("cc",ccData);
     cuentaCorriente.unshift(Object.assign({},ccData,savedCC||{}));
-    compras.unshift(compra);
+
+    // 5. Limpiar formulario
+    lineasCompra = [];
+    renderLineasCompra();
+    document.getElementById("cProveedor").value="";
+    document.getElementById("cFactura").value="";
+    document.getElementById("cObs").value="";
+    document.getElementById("cFormaPago").value="Efectivo";
+
+    // 6. Refrescar
+    actualizarProvLists();
+    renderPanel(); renderStock(); renderAlertas(); renderMovimientos(); renderCC(); renderCompras();
+    toast("Compra registrada ✅ · "+lineasCopia.length+" línea"+(lineasCopia.length!==1?"s":"")+" · $"+fmt(total)+" → CC y Movimientos actualizados","ok",4500);
+
   }catch(e){
-    _guardandoCompra = false;
-    const btnE = document.querySelector("#sec-compras .btn-success");
-    if(btnE){ btnE.disabled=false; btnE.textContent="✔ Confirmar compra"; }
-    toast("Error guardando compra: "+e.message,"err"); return;
+    toast("Error guardando compra: "+e.message,"err");
+  }finally{
+    resetBtn();
   }
-
-  // 4. Limpiar formulario
-  lineasCompra = [];
-  renderLineasCompra();
-  document.getElementById("cProveedor").value="";
-  document.getElementById("cFactura").value="";
-  document.getElementById("cObs").value="";
-  document.getElementById("cFormaPago").value="A pagar";
-  // Re-habilitar botón
-  _guardandoCompra = false;
-  const btnC = document.querySelector("#sec-compras .btn-success");
-  if(btnC){ btnC.disabled=false; btnC.textContent="✔ Confirmar compra"; }
-
-  // 5. Refrescar todo
-  actualizarProvLists();
-  renderPanel(); renderStock(); renderAlertas(); renderMovimientos(); renderCC(); renderCompras();
-
-  toast(`Compra registrada ✅ · ${lineasCompra.length===0?compra.lineas.length+" líneas":""} · $${fmt(total)} → CC y Movimientos actualizados`,"ok",4500);
 }
 
 function renderCompras(){
