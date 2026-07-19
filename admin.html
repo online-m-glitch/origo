@@ -307,6 +307,7 @@ tr:hover td{background:#fafbfc;}
 }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 <body>
 
@@ -366,6 +367,9 @@ tr:hover td{background:#fafbfc;}
       <span class="icon">💰</span> Análisis ML
     </div>
     <div class="nav-section">Tienda</div>
+    <div class="nav-item" onclick="mostrarSeccion('ml')">
+      <span class="icon">🔗</span> MercadoLibre
+    </div>
     <div class="nav-item" onclick="mostrarSeccion('pedidos')">
       <span class="icon">🛍️</span> Pedidos
     </div>
@@ -394,6 +398,7 @@ tr:hover td{background:#fafbfc;}
           <h2>Panel de Control</h2>
           <div class="sub" id="panelFecha"></div>
         </div>
+        <button class="btn btn-ghost btn-sm" onclick="recargarTodo()" title="Recargar datos desde Supabase">🔄 Actualizar datos</button>
       </div>
       <div style="padding:24px;">
         <div class="stats-grid" id="panelStats"></div>
@@ -506,6 +511,9 @@ tr:hover td{background:#fafbfc;}
     <div id="sec-movimientos" class="section">
       <div class="page-header">
         <div><h2>Movimientos</h2><div class="sub">Ingresos, ventas, bajas y ajustes</div></div>
+        <button class="btn btn-ghost btn-sm admin-only" onclick="abrirImportadorFullML()" title="Importar PDF de envío a Full ML">
+          📄 Importar envío a Full ML
+        </button>
       </div>
       <div style="padding:24px;">
         <div class="card" style="margin-bottom:20px;">
@@ -572,7 +580,7 @@ tr:hover td{background:#fafbfc;}
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Fecha</th><th>Tipo</th><th>SKU</th><th>Producto</th><th>Cantidad</th><th>Costo unit.</th><th>Precio ML</th><th>Total</th><th>Obs.</th><th></th></tr></thead>
+              <thead><tr><th>Fecha</th><th>Tipo</th><th>SKU</th><th>Producto</th><th>Cantidad</th><th>Costo unit.</th><th>Recibí ML ($)</th><th>Resultado ($)</th><th>Obs.</th><th></th></tr></thead>
               <tbody id="movimientosBody"></tbody>
             </table>
             <div class="empty" id="movEmpty" style="display:none;"><div class="icon">↕️</div><p>Sin movimientos registrados.</p></div>
@@ -882,7 +890,7 @@ tr:hover td{background:#fafbfc;}
                 </div>
                 <div class="table-wrap" style="max-height:400px;overflow-y:auto;">
                   <table>
-                    <thead><tr><th>Fecha</th><th>SKU</th><th>Título ML</th><th>Cant.</th><th>Precio unit. ($)</th><th>Ingreso ($)</th><th>Neto ($)</th><th>Estado</th><th>Producto catálogo</th><th>✓</th></tr></thead>
+                    <thead><tr><th>Fecha</th><th>SKU</th><th>Título ML</th><th>Cant.</th><th>Precio unit. ($)</th><th>Ingreso por venta ($)</th><th>Recibí ($)</th><th>Estado</th><th>Producto catálogo</th><th>✓</th></tr></thead>
                     <tbody id="mlPreviewBody"></tbody>
                   </table>
                 </div>
@@ -952,7 +960,7 @@ tr:hover td{background:#fafbfc;}
             </div>
             <div class="table-wrap">
               <table>
-                <thead><tr><th>Fecha</th><th>Canal</th><th>SKU</th><th>Producto</th><th>Cant.</th><th>Precio unit. ($)</th><th>Ingreso ($)</th><th>Neto ($)</th><th>Obs.</th><th></th></tr></thead>
+                <thead><tr><th>Fecha</th><th>Canal</th><th>SKU</th><th>Producto</th><th>Cant.</th><th>Ingreso por venta ($)</th><th>Recibí ($)</th><th>Obs.</th><th></th></tr></thead>
                 <tbody id="ventasBody"></tbody>
               </table>
               <div class="empty" id="ventasEmpty" style="display:none;"><div class="icon">💸</div><p>Sin ventas registradas todavía.</p></div>
@@ -1025,6 +1033,84 @@ tr:hover td{background:#fafbfc;}
             <div class="empty" id="pedidosEmpty" style="display:none;"><div class="icon">🛍️</div><p>Sin pedidos recibidos todavía.</p></div>
           </div>
         </div>
+      </div>
+    </div>
+
+
+    <!-- ========== MERCADOLIBRE ========== -->
+    <div id="sec-ml" class="section">
+      <div class="page-header">
+        <div><h2>MercadoLibre</h2><div class="sub">Conexión con la API de ML</div></div>
+      </div>
+      <div style="padding:24px;">
+
+        <!-- Estado de conexión -->
+        <div class="card" style="margin-bottom:20px;">
+          <div class="card-header"><h3>🔗 Estado de conexión</h3></div>
+          <div style="padding:20px;">
+            <div id="mlStatusWrap" style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+              <div id="mlStatusBadge" style="font-size:14px;font-weight:700;">⏳ Verificando...</div>
+              <div id="mlUserInfo" style="font-size:13px;color:var(--text-soft);"></div>
+            </div>
+            <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;">
+              <button class="btn btn-primary" id="btnConectarML" onclick="conectarML()" style="display:none;">
+                🔗 Conectar con MercadoLibre
+              </button>
+              <button class="btn btn-ghost" id="btnDesconectarML" onclick="desconectarML()" style="display:none;">
+                Desconectar
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Acciones disponibles -->
+        <div id="mlAccionesWrap" style="display:none;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;" class="panel-grid">
+
+            <!-- Sincronizar ventas -->
+            <div class="card">
+              <div class="card-header"><h3>💸 Sincronizar ventas</h3></div>
+              <div style="padding:16px;">
+                <p style="font-size:13px;color:var(--text-soft);margin-bottom:12px;">
+                  Trae las ventas recientes de ML y las importa automáticamente.
+                </p>
+                <div class="form-group" style="margin-bottom:12px;">
+                  <label>Días a traer</label>
+                  <select id="mlDiasVentas" style="padding:9px;border:1.5px solid var(--border);border-radius:7px;font-size:13px;width:100%;">
+                    <option value="7">Últimos 7 días</option>
+                    <option value="15">Últimos 15 días</option>
+                    <option value="30">Últimos 30 días</option>
+                    <option value="60">Últimos 60 días</option>
+                  </select>
+                </div>
+                <button class="btn btn-success" onclick="sincronizarVentasML()">⬇️ Importar ventas</button>
+                <div id="mlVentasStatus" style="margin-top:10px;font-size:12px;color:var(--text-soft);"></div>
+              </div>
+            </div>
+
+            <!-- Sincronizar stock -->
+            <div class="card">
+              <div class="card-header"><h3>📦 Sincronizar stock Full ML</h3></div>
+              <div style="padding:16px;">
+                <p style="font-size:13px;color:var(--text-soft);margin-bottom:12px;">
+                  Trae el stock actual de tus publicaciones en ML y actualiza el Stock Full ML.
+                </p>
+                <button class="btn btn-success" onclick="sincronizarStockML()">🔄 Sincronizar stock</button>
+                <div id="mlStockStatus" style="margin-top:10px;font-size:12px;color:var(--text-soft);"></div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Log de sincronización -->
+          <div class="card">
+            <div class="card-header"><h3>📋 Log de sincronización</h3></div>
+            <div style="padding:16px;max-height:300px;overflow-y:auto;font-family:monospace;font-size:12px;background:#f8f9fa;border-radius:8px;" id="mlLog">
+              <div style="color:var(--text-soft);">Sin actividad todavía.</div>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -1180,6 +1266,80 @@ tr:hover td{background:#fafbfc;}
   </div>
 </div>
 
+
+<!-- Modal importar Full ML -->
+<div class="overlay" id="modalFullML">
+  <div class="modal" style="max-width:700px;">
+    <h3>🚚 Importar envío a Full ML</h3>
+    <p style="font-size:13px;color:var(--text-soft);margin-bottom:16px;">
+      Subí el PDF de instrucciones de preparación de ML Full o pegá el texto. 
+      Se registrará un movimiento de <strong>Envío a Full</strong> por cada producto detectado.
+    </p>
+
+    <div class="form-grid" style="margin-bottom:14px;">
+      <div class="form-group">
+        <label>Fecha del envío</label>
+        <input type="date" id="fullMLFecha">
+      </div>
+      <div class="form-group">
+        <label>Nro. de envío (opcional)</label>
+        <input type="text" id="fullMLNro" placeholder="Ej: 70913800">
+      </div>
+    </div>
+
+    <!-- Upload PDF -->
+    <div style="border:2px dashed var(--border);border-radius:10px;padding:20px;text-align:center;margin-bottom:14px;cursor:pointer;transition:.15s;"
+         id="fullMLDropZone"
+         ondragover="event.preventDefault();this.style.borderColor='var(--ml-blue)'"
+         ondragleave="this.style.borderColor='var(--border)'"
+         ondrop="onDropFullML(event)">
+      <div style="font-size:28px;margin-bottom:8px;">📄</div>
+      <div style="font-size:14px;font-weight:700;color:#0d2259;margin-bottom:4px;">Arrastrá el PDF acá</div>
+      <div style="font-size:12px;color:var(--text-soft);margin-bottom:12px;">o hacé clic para seleccionar</div>
+      <label class="btn btn-primary" style="cursor:pointer;">
+        📂 Seleccionar PDF
+        <input type="file" id="fullMLFile" accept=".pdf" style="display:none;" onchange="cargarPDFFullML(this)">
+      </label>
+      <div id="fullMLArchivoNombre" style="font-size:12px;color:var(--text-soft);margin-top:10px;"></div>
+      <div id="fullMLProgreso" style="font-size:12px;color:var(--ml-blue);margin-top:6px;display:none;">⏳ Leyendo PDF...</div>
+    </div>
+
+    <!-- Alternativa: pegar texto -->
+    <details style="margin-bottom:14px;">
+      <summary style="cursor:pointer;font-size:12px;color:var(--text-soft);">✏️ O pegá el texto manualmente</summary>
+      <div class="form-group" style="margin-top:8px;">
+        <textarea id="fullMLTexto" rows="6"
+          style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;font-family:monospace;resize:vertical;"
+          placeholder="Pegá el texto copiado del PDF..."></textarea>
+        <button class="btn btn-primary" style="margin-top:8px;" onclick="procesarTextoFullML()">⚙️ Procesar texto</button>
+      </div>
+    </details>
+
+    <div style="display:flex;gap:10px;margin-bottom:16px;">
+      <button class="btn btn-ghost" onclick="limpiarFullML()">✕ Limpiar</button>
+    </div>
+
+    <!-- Preview -->
+    <div id="fullMLPreviewWrap" style="display:none;">
+      <div style="font-size:13px;font-weight:700;color:#0d2259;margin-bottom:10px;" id="fullMLResumen"></div>
+      <div class="table-wrap" style="max-height:300px;overflow-y:auto;margin-bottom:14px;">
+        <table>
+          <thead><tr><th>SKU</th><th>Producto</th><th>Unidades</th><th>En catálogo</th><th>✓</th></tr></thead>
+          <tbody id="fullMLBody"></tbody>
+        </table>
+      </div>
+      <div style="padding:10px 14px;background:#f0f4ff;border-radius:8px;margin-bottom:14px;font-size:13px;" id="fullMLTotales"></div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="cerrarModalFullML()">Cancelar</button>
+      <button class="btn btn-success" id="btnConfirmarFullML" onclick="confirmarImportFullML()" style="display:none;">
+        ✔ Confirmar envío a Full ML
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal confirmar -->
 <div class="overlay" id="modalConfirm">
   <div class="modal modal-sm">
@@ -1201,6 +1361,13 @@ const PASS_ADMIN = "origo2026";
 const PASS_VIEWER = "origo2025";
 let rolActual = ""; // "admin" o "viewer"
 const SB_URL = "https://piqkwewxbjumyqwtmnxn.supabase.co";
+const ML_APP_ID = "7365851659331274";
+const ML_REDIRECT = "https://online-m-glitch.github.io/origo/admin.html";
+const ML_AUTH_URL = "https://auth.mercadolibre.com.ar/authorization";
+const ML_TOKEN_URL = "https://api.mercadolibre.com/oauth/token";
+const ML_API = "https://api.mercadolibre.com";
+const ML_SECRET = "I1TkEbBInx0PVVRKBLWvFLvptxLo7Dz4";
+
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I";
 
 async function sbGet(table, params){
@@ -1825,8 +1992,14 @@ function renderMovimientos(buscar){
       <td style="max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(m.producto)}</td>
       <td class="num">${impacto}${m.cantidad}</td>
       <td class="num">$${fmt(m.costo)}</td>
-      <td class="num">$${fmt(m.precio)}</td>
-      <td class="num">$${fmt(m.costo*m.cantidad)}</td>
+      <td class="num">${m.tipo==='Venta'?'$'+fmt(m.totalNeto||m.precio):'-'}</td>
+      <td class="num ${m.tipo==='Venta'?((m.totalNeto||m.precio*m.cantidad)>m.costo*m.cantidad?'num-pos':'num-neg'):''}">${
+        m.tipo==='Venta'
+          ? '$'+fmt((m.totalNeto||m.precio*m.cantidad) - m.costo*m.cantidad)
+          : m.tipo==='Ingreso'
+            ? '-$'+fmt(m.costo*m.cantidad)
+            : '-'
+      }</td>
       <td style="color:var(--text-soft);font-size:12px;">${esc(m.obs||"")}</td>
       <td>${esAdmin()?`<button class="btn btn-danger btn-sm" onclick="eliminarMovimiento(${idx})">✕</button>`:""}</td>
     </tr>`;
@@ -2210,13 +2383,18 @@ function eliminarCompra(idx){
 // ================================================================
 // NAVEGACIÓN
 // ================================================================
-function mostrarSeccion(id){
+async function mostrarSeccion(id){
   document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));
   document.querySelectorAll(".nav-item").forEach(n=>n.classList.remove("active"));
   document.getElementById("sec-"+id).classList.add("active");
   event.currentTarget.classList.add("active");
   if(window.innerWidth<=768) closeSidebar();
-  // Refrescar la sección activa
+
+  // Recargar datos frescos desde Supabase al cambiar de sección
+  await cargarDatos();
+  actualizarProvLists(); actualizarSkuList(); actualizarSkuListCompras();
+
+  // Renderizar la sección activa
   if(id==="panel") renderPanel();
   if(id==="stock") renderStock();
   if(id==="alertas") renderAlertas();
@@ -2225,6 +2403,7 @@ function mostrarSeccion(id){
   if(id==="compras"){ renderCompras(); actualizarSkuListCompras(); }
   if(id==="ventas"){ renderVentas(); }
   if(id==="pedidos"){ renderPedidos(); }
+  if(id==="ml"){ verificarTokenML(); }
   if(id==="analisis") renderAnalisis();
 }
 
@@ -2714,7 +2893,7 @@ function renderVentas(){
       <td style="max-width:180px;">${esc(v.producto||'')}</td>
       <td class="num">${v.cantidad}</td>
       <td class="num">$${fmt(v.precio)}</td>
-      <td class="num" style="font-weight:700;">$${fmt(v.cantidad*v.precio)}</td>
+      <td class="num num-pos" style="font-weight:700;" title="Lo que quedó después de comisiones ML">$${fmt(v.totalNeto||v.ingresoBruto||v.cantidad*v.precio)}</td>
       <td style="font-size:12px;color:var(--text-soft);">${esc(v.obs||'')}</td>
       <td>${esAdmin()?`<button class="btn btn-danger btn-sm" onclick="eliminarVenta(${realIdx})">✕</button>`:""}</td>
     </tr>`;
@@ -2726,7 +2905,7 @@ function renderVentas(){
   const unidML=ventas.filter(v=>v.canal==='ML').reduce((a,v)=>a+v.cantidad,0);
   const unidTienda=ventas.filter(v=>v.canal==='Tienda').reduce((a,v)=>a+v.cantidad,0);
   document.getElementById('ventasStats').innerHTML=`
-    <div class="stat-card"><div class="label">Total ventas ML</div><div class="value blue">$${fmt(totalML)}</div></div>
+    <div class="stat-card"><div class="label">Ingreso neto ML</div><div class="value blue">$${fmt(totalML)}</div></div>
     <div class="stat-card"><div class="label">Unid. vendidas ML</div><div class="value">${unidML}</div></div>
     <div class="stat-card"><div class="label">Total ventas Tienda</div><div class="value green">$${fmt(totalTienda)}</div></div>
     <div class="stat-card"><div class="label">Unid. vendidas Tienda</div><div class="value">${unidTienda}</div></div>
@@ -3594,6 +3773,548 @@ async function registrarPagoFactura(){
   }catch(e){ toast("Error: "+e.message,"err"); }
   mostrarCargando(false);
 }
+
+
+
+// ── PDF.js config ──
+if(typeof pdfjsLib !== "undefined"){
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+}
+
+function onDropFullML(event){
+  event.preventDefault();
+  document.getElementById("fullMLDropZone").style.borderColor = "var(--border)";
+  const file = event.dataTransfer.files[0];
+  if(file && file.type==="application/pdf") leerPDFFullML(file);
+  else toast("Subí un archivo PDF.","err");
+}
+
+function cargarPDFFullML(input){
+  const file = input.files[0];
+  if(file) leerPDFFullML(file);
+  input.value = "";
+}
+
+async function leerPDFFullML(file){
+  document.getElementById("fullMLArchivoNombre").textContent = "📄 "+file.name;
+  document.getElementById("fullMLProgreso").style.display = "block";
+  document.getElementById("fullMLPreviewWrap").style.display = "none";
+  document.getElementById("btnConfirmarFullML").style.display = "none";
+
+  try{
+    if(typeof pdfjsLib === "undefined"){
+      throw new Error("PDF.js no disponible. Usá la opción de pegar texto.");
+    }
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+    let textoCompleto = "";
+    for(let i=1;i<=pdf.numPages;i++){
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      const pageText = content.items.map(item=>item.str).join(" ");
+      textoCompleto += pageText + "\n";
+    }
+    document.getElementById("fullMLTexto").value = textoCompleto;
+    document.getElementById("fullMLProgreso").style.display = "none";
+    procesarTextoFullML();
+  }catch(e){
+    document.getElementById("fullMLProgreso").style.display = "none";
+    toast("Error leyendo PDF: "+e.message,"err",5000);
+    console.error(e);
+  }
+}
+
+function limpiarFullML(){
+  document.getElementById("fullMLTexto").value="";
+  document.getElementById("fullMLArchivoNombre").textContent="";
+  document.getElementById("fullMLProgreso").style.display="none";
+  document.getElementById("fullMLPreviewWrap").style.display="none";
+  document.getElementById("btnConfirmarFullML").style.display="none";
+  document.getElementById("fullMLFile").value="";
+  fullMLLineas=[];
+}
+
+// ── Importador Full ML PDF ──
+let fullMLLineas = [];
+
+function abrirImportadorFullML(){
+  if(checkViewer("Importar envíos a Full ML")) return;
+  document.getElementById("fullMLFecha").value = new Date().toISOString().split("T")[0];
+  document.getElementById("fullMLNro").value = "";
+  document.getElementById("fullMLTexto").value = "";
+  document.getElementById("fullMLArchivoNombre").textContent = "";
+  document.getElementById("fullMLProgreso").style.display = "none";
+  document.getElementById("fullMLPreviewWrap").style.display = "none";
+  document.getElementById("btnConfirmarFullML").style.display = "none";
+  fullMLLineas = [];
+  document.getElementById("modalFullML").classList.add("show");
+}
+
+function cerrarModalFullML(){
+  document.getElementById("modalFullML").classList.remove("show");
+  fullMLLineas = [];
+}
+
+function procesarTextoFullML(){
+  const texto = document.getElementById("fullMLTexto").value;
+  if(!texto.trim()){ toast("Pegá el texto del PDF primero.","err"); return; }
+
+  fullMLLineas = [];
+
+  // El PDF de ML Full linearizado por PDF.js tiene el formato:
+  // "SKU: PR5 PLUS Protector De... Etiquetado obligatorio 5 Código ML:..."
+  // Extraemos todos los SKU y todos los números post-"obligatorio" y los emparejamos por posición
+
+  // 1. Extraer SKUs
+  const skuRegex = /SKU:\s*([A-Z0-9][A-Z0-9 \-\.\/+]*?)(?=\s+[A-ZÁÉÍÓÚ][a-záéíóúñ]{2,}|\s+Etiquetado|\s*$)/g;
+  const skusEncontrados = [];
+  let m;
+  while((m = skuRegex.exec(texto)) !== null){
+    const sku = m[1].trim().replace(/\s+/g," ");
+    if(sku.length >= 2) skusEncontrados.push(sku);
+  }
+
+  // 2. Extraer unidades — PDF.js pone todos los números juntos DESPUÉS de
+  // "INSTRUCCIONES DE PREPARACIÓN" (puede aparecer 1 o 2 veces por páginas)
+  const unidsEncontradas = [];
+  const instrRegex = /INSTRUCCIONES\s+DE\s+PREPARACI[ÓO]N\s+([\d\s]+)/g;
+  let instrM;
+  while((instrM = instrRegex.exec(texto)) !== null){
+    const nums = instrM[1].match(/\d+/g)||[];
+    for(const n of nums){
+      const num = parseInt(n);
+      if(num > 0 && num < 5000) unidsEncontradas.push(num);
+    }
+  }
+
+  // Fallback: si no encuentra por ese método, buscar después de "obligatorio"
+  if(!unidsEncontradas.length){
+    const unidRegex = /obligatorio[\s]*(\d{1,4})(?:[\s]|$|[A-Z])/g;
+    while((m = unidRegex.exec(texto)) !== null){
+      const n = parseInt(m[1]);
+      if(n > 0 && n < 5000) unidsEncontradas.push(n);
+    }
+  }
+
+  // 3. Emparejar por índice, evitar duplicados
+  const vistos = new Set();
+  for(let i = 0; i < skusEncontrados.length; i++){
+    const sku = skusEncontrados[i];
+    if(vistos.has(sku)) continue;
+    vistos.add(sku);
+    const unidades = unidsEncontradas[i] || 0;
+    const prod = productos.find(p => p.sku.toUpperCase() === sku.toUpperCase());
+    fullMLLineas.push({
+      sku, unidades,
+      nombrePDF: "",
+      producto: prod ? prod.nombre : "",
+      enCatalogo: !!prod,
+      incluir: true
+    });
+  }
+
+  if(!fullMLLineas.length){ toast("No se encontraron SKU en el texto. Asegurate de copiar todo el PDF.","err"); return; }
+  renderFullMLPreview();
+}
+
+function renderFullMLPreview(){
+  const totalUnid = fullMLLineas.filter(l=>l.incluir).reduce((a,l)=>a+l.unidades,0);
+  const enCat = fullMLLineas.filter(l=>l.enCatalogo).length;
+  const sinCat = fullMLLineas.filter(l=>!l.enCatalogo).length;
+
+  document.getElementById("fullMLResumen").innerHTML =
+    `${fullMLLineas.length} productos detectados &nbsp;·&nbsp; `+
+    `<span style="color:var(--green);">✅ ${enCat} en catálogo</span>`+
+    (sinCat?` &nbsp;·&nbsp; <span style="color:var(--orange);">⚠️ ${sinCat} no encontrado</span>`:"");
+
+  document.getElementById("fullMLBody").innerHTML = fullMLLineas.map((l,i)=>`
+    <tr style="${!l.enCatalogo?'background:#fff7ed;':''}">
+      <td><span class="sku-tag">${esc(l.sku)}</span></td>
+      <td style="font-size:12px;color:var(--text-soft);max-width:180px;">${esc(l.producto||l.nombrePDF||"")}</td>
+      <td>
+        <input type="number" value="${l.unidades}" min="0"
+          style="width:70px;padding:4px 7px;border:1.5px solid var(--border);border-radius:5px;font-size:13px;"
+          onchange="fullMLLineas[${i}].unidades=parseInt(this.value)||0; actualizarTotalesFullML();">
+      </td>
+      <td>${l.enCatalogo
+        ? `<span class="badge badge-green">✓ ${esc(l.producto)}</span>`
+        : `<span class="badge badge-orange">No encontrado</span>`}
+      </td>
+      <td style="text-align:center;">
+        <input type="checkbox" ${l.incluir?"checked":""} style="width:15px;height:15px;cursor:pointer;"
+          onchange="fullMLLineas[${i}].incluir=this.checked; actualizarTotalesFullML();">
+      </td>
+    </tr>`).join("");
+
+  document.getElementById("fullMLPreviewWrap").style.display = "block";
+  document.getElementById("btnConfirmarFullML").style.display = "inline-block";
+  actualizarTotalesFullML();
+}
+
+function actualizarTotalesFullML(){
+  const sel = fullMLLineas.filter(l=>l.incluir);
+  const totalUnid = sel.reduce((a,l)=>a+l.unidades,0);
+  document.getElementById("fullMLTotales").innerHTML =
+    `<strong>${sel.length}</strong> productos seleccionados &nbsp;·&nbsp; `+
+    `<strong>${totalUnid}</strong> unidades totales a enviar a Full ML`;
+}
+
+async function confirmarImportFullML(){
+  const fecha = document.getElementById("fullMLFecha").value;
+  const nroEnvio = document.getElementById("fullMLNro").value.trim();
+  if(!fecha){ toast("Ingresá la fecha del envío.","err"); return; }
+
+  const seleccionadas = fullMLLineas.filter(l=>l.incluir&&l.unidades>0);
+  if(!seleccionadas.length){ toast("Seleccioná al menos un producto.","err"); return; }
+
+  mostrarCargando(true);
+  let ok=0, warn=0;
+
+  for(const l of seleccionadas){
+    const prod = productos.find(p=>p.sku.toUpperCase()===l.sku.toUpperCase());
+    const mov = {
+      fecha, tipo:"Envío a Full",
+      sku: l.sku,
+      producto: prod?prod.nombre:(l.producto||l.nombrePDF||l.sku),
+      cantidad: l.unidades,
+      costo: prod?prod.costo:0,
+      precio: prod?prod.precio:0,
+      obs: "Envío a Full ML"+(nroEnvio?" · Envío #"+nroEnvio:""),
+      origen: ""
+    };
+    try{
+      const saved = await sbGuardar("movimiento", mov);
+      movimientos.unshift(Object.assign({},mov,saved||{}));
+      // Actualizar stockML: sumar unidades
+      const skuUp = l.sku.toUpperCase();
+      stockML[skuUp] = (stockML[skuUp]||0) + l.unidades;
+      await sbGuardar("stockml",{sku:skuUp, cantidad:stockML[skuUp]}).catch(()=>{});
+      ok++;
+    }catch(e){ warn++; }
+  }
+
+  mostrarCargando(false);
+  cerrarModalFullML();
+  renderMovimientos(); renderStock(); renderAlertas(); renderPanel();
+  toast(`Envío a Full importado: ${ok} producto${ok!==1?"s":""} · ${seleccionadas.reduce((a,l)=>a+l.unidades,0)} unidades${warn?" · "+warn+" errores":""}. Stock Full ML actualizado. ✅`,"ok",5000);
+}
+
+document.getElementById("modalFullML").addEventListener("click", function(e){
+  if(e.target===e.currentTarget) cerrarModalFullML();
+});
+
+
+// ── Recargar todos los datos desde Supabase ──
+async function recargarTodo(){
+  await cargarDatos();
+  actualizarProvLists(); actualizarSkuList(); actualizarSkuListCompras();
+  renderPanel(); renderProductos(); renderStock(); renderAlertas();
+  renderMovimientos(); renderCC(); renderCompras(); renderVentas();
+  renderAnalisis(); renderPedidos();
+  toast("✅ Datos actualizados desde Supabase","ok",3000);
+}
+
+
+// ================================================================
+// MERCADOLIBRE API
+// ================================================================
+let mlToken = null;
+let mlUserId = null;
+
+// ── Guardar/leer token en Supabase ──
+async function guardarTokenML(tokenData){
+  try{
+    await fetch(SB_URL+"/rest/v1/ml_tokens?id=eq.1", {
+      method:"DELETE",
+      headers:{"apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY}
+    });
+    await fetch(SB_URL+"/rest/v1/ml_tokens", {
+      method:"POST",
+      headers:{"apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY,"Content-Type":"application/json","Prefer":"return=minimal"},
+      body:JSON.stringify({id:1, access_token:tokenData.access_token, refresh_token:tokenData.refresh_token, user_id:tokenData.user_id, expires_at: new Date(Date.now()+tokenData.expires_in*1000).toISOString()})
+    });
+  }catch(e){ console.error("Error guardando token ML:", e); }
+}
+
+async function leerTokenML(){
+  try{
+    const r = await fetch(SB_URL+"/rest/v1/ml_tokens?id=eq.1", {
+      headers:{"apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY}
+    });
+    const data = await r.json();
+    return data && data[0] ? data[0] : null;
+  }catch(e){ return null; }
+}
+
+async function renovarTokenML(refreshToken){
+  try{
+    const r = await fetch("https://api.mercadolibre.com/oauth/token", {
+      method:"POST",
+      headers:{"Content-Type":"application/x-www-form-urlencoded","Accept":"application/json"},
+      body: new URLSearchParams({
+        grant_type:"refresh_token",
+        client_id: ML_APP_ID,
+        client_secret: ML_SECRET,
+        refresh_token: refreshToken
+      })
+    });
+    if(!r.ok) return null;
+    const data = await r.json();
+    await guardarTokenML(data);
+    return data.access_token;
+  }catch(e){ return null; }
+}
+
+async function verificarTokenML(){
+  const tokenData = await leerTokenML();
+  const statusEl = document.getElementById("mlStatusBadge");
+  const userEl = document.getElementById("mlUserInfo");
+  const btnConectar = document.getElementById("btnConectarML");
+  const btnDesconectar = document.getElementById("btnDesconectarML");
+  const accionesWrap = document.getElementById("mlAccionesWrap");
+
+  if(!tokenData){
+    statusEl.innerHTML = '<span style="color:var(--red);">⚫ No conectado</span>';
+    btnConectar.style.display="inline-block";
+    btnDesconectar.style.display="none";
+    accionesWrap.style.display="none";
+    return;
+  }
+
+  // Verificar si el token expiró
+  const expires = new Date(tokenData.expires_at);
+  const now = new Date();
+  let token = tokenData.access_token;
+
+  if(now >= expires){
+    logML("Token expirado, renovando...");
+    token = await renovarTokenML(tokenData.refresh_token);
+    if(!token){
+      statusEl.innerHTML = '<span style="color:var(--red);">⚫ Token expirado — reconectá</span>';
+      btnConectar.style.display="inline-block";
+      btnDesconectar.style.display="none";
+      accionesWrap.style.display="none";
+      return;
+    }
+    logML("Token renovado ✅");
+  }
+
+  mlToken = token;
+  mlUserId = tokenData.user_id;
+
+  // Verificar usuario con ML API
+  try{
+    const r = await fetch(ML_API+"/users/me", {
+      headers:{"Authorization":"Bearer "+mlToken}
+    });
+    const user = await r.json();
+    statusEl.innerHTML = '<span style="color:var(--green);">🟢 Conectado</span>';
+    userEl.textContent = user.nickname+" · "+user.email;
+    btnConectar.style.display="none";
+    btnDesconectar.style.display="inline-block";
+    accionesWrap.style.display="block";
+    logML("Sesión activa: "+user.nickname);
+  }catch(e){
+    statusEl.innerHTML = '<span style="color:var(--orange);">⚠️ Error verificando</span>';
+    btnConectar.style.display="inline-block";
+  }
+}
+
+function conectarML(){
+  const state = Math.random().toString(36).substring(2);
+  sessionStorage.setItem("ml_state", state);
+  const url = ML_AUTH_URL +
+    "?response_type=code" +
+    "&client_id="+ML_APP_ID +
+    "&redirect_uri="+encodeURIComponent(ML_REDIRECT) +
+    "&state="+state;
+  window.location.href = url;
+}
+
+function desconectarML(){
+  confirmCb = async()=>{
+    await fetch(SB_URL+"/rest/v1/ml_tokens?id=eq.1", {
+      method:"DELETE",
+      headers:{"apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY}
+    });
+    mlToken = null; mlUserId = null;
+    verificarTokenML();
+    toast("Desconectado de MercadoLibre","ok");
+  };
+  document.getElementById("confirmBtn").textContent="Desconectar";
+  document.getElementById("confirmMsg").innerHTML="¿Desconectar la cuenta de MercadoLibre?";
+  document.getElementById("modalConfirm").classList.add("show");
+}
+
+// ── Manejar callback OAuth (código en URL) ──
+async function manejarCallbackML(){
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get("code");
+  const state = params.get("state");
+  if(!code) return;
+
+  // Limpiar URL
+  window.history.replaceState({}, document.title, window.location.pathname);
+
+  logML("Código OAuth recibido, intercambiando por token...");
+  mostrarCargando(true);
+
+  try{
+    const r = await fetch(ML_TOKEN_URL, {
+      method:"POST",
+      headers:{"Content-Type":"application/x-www-form-urlencoded","Accept":"application/json"},
+      body: new URLSearchParams({
+        grant_type:"authorization_code",
+        client_id: ML_APP_ID,
+        client_secret: ML_SECRET,
+        code: code,
+        redirect_uri: ML_REDIRECT
+      })
+    });
+    const data = await r.json();
+    if(data.access_token){
+      await guardarTokenML(data);
+      mlToken = data.access_token;
+      logML("Conectado exitosamente con MercadoLibre ✅");
+      toast("✅ Conectado con MercadoLibre","ok",4000);
+      // Ir a la sección ML
+      mostrarCargando(false);
+    } else {
+      logML("Error: "+JSON.stringify(data));
+      toast("Error conectando con ML: "+(data.message||""),"err");
+      mostrarCargando(false);
+    }
+  }catch(e){
+    logML("Error: "+e.message);
+    toast("Error: "+e.message,"err");
+    mostrarCargando(false);
+  }
+}
+
+// ── Sincronizar ventas desde ML API ──
+async function sincronizarVentasML(){
+  if(!mlToken){ toast("Primero conectá con MercadoLibre.","err"); return; }
+  const dias = parseInt(document.getElementById("mlDiasVentas").value)||7;
+  const statusEl = document.getElementById("mlVentasStatus");
+  statusEl.textContent = "⏳ Consultando ventas...";
+
+  try{
+    const desde = new Date(Date.now()-dias*24*60*60*1000).toISOString();
+    // Traer órdenes pagadas
+    const r = await fetch(ML_API+"/orders/search?seller="+mlUserId+"&order.status=paid&order.date_created.from="+desde+"&limit=50&sort=date_desc", {
+      headers:{"Authorization":"Bearer "+mlToken}
+    });
+    const data = await r.json();
+    const ordenes = data.results||[];
+    logML("Órdenes encontradas: "+ordenes.length);
+
+    let nuevas=0, dupli=0;
+    mostrarCargando(true);
+
+    for(const orden of ordenes){
+      for(const item of (orden.order_items||[])){
+        const nroVenta = String(orden.id);
+        const sku = item.item?.seller_sku||item.item?.id||"";
+        const titulo = item.item?.title||"";
+        const cantidad = item.quantity||1;
+        const precioUnit = item.unit_price||0;
+        const totalNeto = orden.payments?.[0]?.net_received_amount||(precioUnit*cantidad*0.67);
+
+        // Verificar duplicado
+        const yaExiste = ventas.some(v=>v.nroVenta===nroVenta && v.sku===sku && v.canal==="ML");
+        if(yaExiste){ dupli++; continue; }
+
+        const fechaStr = (orden.date_created||"").split("T")[0];
+        const prod = productos.find(p=>p.sku.toUpperCase()===(sku||"").toUpperCase());
+
+        const vData = {fecha:fechaStr, canal:"ML", sku, producto:prod?prod.nombre:titulo,
+          cantidad, precio:precioUnit, ingresoBruto:precioUnit*cantidad,
+          totalNeto, esCarrito:false, nroVenta, obs:"Sync ML API"};
+        const mData = {fecha:fechaStr, tipo:"Venta", sku, producto:prod?prod.nombre:titulo,
+          cantidad, costo:prod?prod.costo:0, precio:precioUnit,
+          obs:"Venta ML #"+nroVenta+" (API)", origen:"ML"};
+        try{
+          const sv=await sbGuardar("venta",vData); ventas.unshift(Object.assign({},vData,sv||{}));
+          const sm=await sbGuardar("movimiento",mData); movimientos.unshift(Object.assign({},mData,sm||{}));
+          nuevas++;
+        }catch(e){ logML("Error guardando venta "+nroVenta+": "+e.message); }
+      }
+    }
+
+    mostrarCargando(false);
+    renderVentas(); renderPanel(); renderStock(); renderAlertas();
+    statusEl.innerHTML = `<span style="color:var(--green);">✅ ${nuevas} ventas importadas · ${dupli} duplicadas ignoradas</span>`;
+    logML("Sync ventas: "+nuevas+" nuevas, "+dupli+" duplicadas");
+    toast("Sync ML: "+nuevas+" ventas importadas","ok",4000);
+  }catch(e){
+    mostrarCargando(false);
+    statusEl.innerHTML = `<span style="color:var(--red);">❌ Error: ${e.message}</span>`;
+    logML("Error sync ventas: "+e.message);
+  }
+}
+
+// ── Sincronizar stock Full ML ──
+async function sincronizarStockML(){
+  if(!mlToken){ toast("Primero conectá con MercadoLibre.","err"); return; }
+  const statusEl = document.getElementById("mlStockStatus");
+  statusEl.textContent = "⏳ Consultando publicaciones...";
+  mostrarCargando(true);
+
+  try{
+    // Traer publicaciones activas
+    const r = await fetch(ML_API+"/users/"+mlUserId+"/items/search?status=active&limit=100", {
+      headers:{"Authorization":"Bearer "+mlToken}
+    });
+    const data = await r.json();
+    const itemIds = data.results||[];
+    logML("Publicaciones activas: "+itemIds.length);
+
+    let actualizados=0;
+    const promises=[];
+
+    // Traer detalles en lotes de 20
+    for(let i=0;i<itemIds.length;i+=20){
+      const batch = itemIds.slice(i,i+20).join(",");
+      const r2 = await fetch(ML_API+"/items?ids="+batch+"&attributes=id,seller_sku,available_quantity", {
+        headers:{"Authorization":"Bearer "+mlToken}
+      });
+      const items = await r2.json();
+      for(const item of items){
+        const body = item.body||item;
+        const sku = (body.seller_sku||"").toUpperCase().trim();
+        const qty = body.available_quantity||0;
+        if(!sku) continue;
+        stockML[sku]=qty;
+        promises.push(sbGuardar("stockml",{sku,cantidad:qty}).catch(()=>{}));
+        actualizados++;
+        logML("Stock "+sku+": "+qty+" unidades");
+      }
+    }
+
+    await Promise.all(promises);
+    mostrarCargando(false);
+    renderStock(); renderAlertas(); renderPanel();
+    statusEl.innerHTML = `<span style="color:var(--green);">✅ ${actualizados} productos actualizados</span>`;
+    toast("Stock ML sincronizado: "+actualizados+" productos","ok",4000);
+  }catch(e){
+    mostrarCargando(false);
+    statusEl.innerHTML = `<span style="color:var(--red);">❌ Error: ${e.message}</span>`;
+    logML("Error sync stock: "+e.message);
+  }
+}
+
+// ── Log helper ──
+function logML(msg){
+  const el = document.getElementById("mlLog");
+  if(!el) return;
+  const time = new Date().toLocaleTimeString("es-AR");
+  el.innerHTML = `<div style="color:#0d2259;">[${time}] ${msg}</div>` + el.innerHTML;
+}
+
+// ── Verificar callback al cargar ──
+window.addEventListener("load", function(){
+  if(window.location.search.includes("code=")) manejarCallbackML();
+});
 
 // ── Sidebar mobile ──
 function openSidebar(){
