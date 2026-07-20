@@ -1609,10 +1609,13 @@ function calcularStockDeposito(sku){
   return s;
 }
 function calcularStockFullML(sku){
-  // Stock Full ML: sube con Envío a Full, baja con Venta ML
-  let s = stockML[sku]||0; // base manual editable
+  const skuUp = sku.toUpperCase().trim();
+  // Si hay dato sincronizado desde ML API, usarlo directamente
+  if(stockML[skuUp] !== undefined) return stockML[skuUp];
+  // Si no, calcular desde movimientos
+  let s = 0;
   for(const m of movimientos){
-    if(m.sku.toUpperCase().trim() !== sku.toUpperCase().trim()) continue;
+    if(m.sku.toUpperCase().trim() !== skuUp) continue;
     const c = Number(m.cantidad)||0;
     if(m.tipo==="Envío a Full") s += c;
     if(m.tipo==="Venta"&&m.origen==="ML") s -= c;
