@@ -4268,9 +4268,10 @@ async function sincronizarStockML(){
     const promises=[];
 
     // Traer detalles individuales de a 10 en paralelo
-    // El endpoint batch /items?ids= no devuelve attributes, necesitamos /items/:id
+    logML("Iniciando fetch de "+itemIds.length+" items...");
     for(let i=0;i<itemIds.length;i+=10){
       const lote = itemIds.slice(i,i+10);
+      logML("Lote "+(i/10+1)+": "+lote.join(", "));
       const resultados = await Promise.all(lote.map(itemId=>
         fetch("https://piqkwewxbjumyqwtmnxn.supabase.co/functions/v1/ml-oauth", {
           method:"POST",
