@@ -4099,8 +4099,10 @@ async function verificarTokenML(){
 
   // Verificar usuario con ML API
   try{
-    const r = await fetch(ML_API+"/users/me", {
-      headers:{"Authorization":"Bearer "+mlToken}
+    const r = await fetch("https://piqkwewxbjumyqwtmnxn.supabase.co/functions/v1/ml-oauth", {
+      method:"POST",
+      headers:{"Content-Type":"application/json","apikey":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I","Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I"},
+      body:JSON.stringify({grant_type:"proxy", path:"/users/me", access_token:mlToken})
     });
     const user = await r.json();
     statusEl.innerHTML = '<span style="color:var(--green);">🟢 Conectado</span>';
@@ -4190,8 +4192,10 @@ async function sincronizarVentasML(){
   try{
     const desde = new Date(Date.now()-dias*24*60*60*1000).toISOString();
     // Traer órdenes pagadas
-    const r = await fetch(ML_API+"/orders/search?seller="+mlUserId+"&order.status=paid&order.date_created.from="+desde+"&limit=50&sort=date_desc", {
-      headers:{"Authorization":"Bearer "+mlToken}
+    const r = await fetch("https://piqkwewxbjumyqwtmnxn.supabase.co/functions/v1/ml-oauth", {
+      method:"POST",
+      headers:{"Content-Type":"application/json","apikey":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I","Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I"},
+      body:JSON.stringify({grant_type:"proxy", path:"/orders/search?seller="+mlUserId+"&order.status=paid&order.date_created.from="+desde+"&limit=50&sort=date_desc", access_token:mlToken})
     });
     const data = await r.json();
     const ordenes = data.results||[];
@@ -4251,8 +4255,10 @@ async function sincronizarStockML(){
 
   try{
     // Traer publicaciones activas
-    const r = await fetch(ML_API+"/users/"+mlUserId+"/items/search?status=active&limit=100", {
-      headers:{"Authorization":"Bearer "+mlToken}
+    const r = await fetch("https://piqkwewxbjumyqwtmnxn.supabase.co/functions/v1/ml-oauth", {
+      method:"POST",
+      headers:{"Content-Type":"application/json","apikey":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I","Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I"},
+      body:JSON.stringify({grant_type:"proxy", path:"/users/"+mlUserId+"/items/search?status=active&limit=100", access_token:mlToken})
     });
     const data = await r.json();
     const itemIds = data.results||[];
@@ -4264,8 +4270,10 @@ async function sincronizarStockML(){
     // Traer detalles en lotes de 20
     for(let i=0;i<itemIds.length;i+=20){
       const batch = itemIds.slice(i,i+20).join(",");
-      const r2 = await fetch(ML_API+"/items?ids="+batch+"&attributes=id,seller_sku,available_quantity", {
-        headers:{"Authorization":"Bearer "+mlToken}
+      const r2 = await fetch("https://piqkwewxbjumyqwtmnxn.supabase.co/functions/v1/ml-oauth", {
+        method:"POST",
+        headers:{"Content-Type":"application/json","apikey":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I","Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I"},
+        body:JSON.stringify({grant_type:"proxy", path:"/items?ids="+batch+"&attributes=id,seller_sku,available_quantity", access_token:mlToken})
       });
       const items = await r2.json();
       for(const item of items){
