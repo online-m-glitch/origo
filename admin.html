@@ -839,7 +839,7 @@ tr:hover td{background:#fafbfc;}
     <!-- ========== VENTAS ========== -->
     <div id="sec-ventas" class="section">
       <div class="page-header">
-        <div><h2>Ventas</h2><div class="sub">MercadoLibre (importar reporte) y Tienda propia</div></div>
+        <div><h2>Ventas</h2><div class="sub">MercadoLibre (importar reporte o sincronización automática) y Tienda propia</div></div>
       </div>
       <div style="padding:24px;">
 
@@ -864,6 +864,40 @@ tr:hover td{background:#fafbfc;}
 
         <!-- TAB: ML -->
         <div id="vpanel-ml">
+
+          <!-- Filtros y ventas ML -->
+          <div class="card" style="margin-bottom:20px;">
+            <div class="card-header">
+              <h3>📊 Ventas MercadoLibre</h3>
+              <div class="toolbar">
+                <select id="mlVentasPeriodo" onchange="renderVentasML()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                  <option value="7">Últimos 7 días</option>
+                  <option value="15">Últimos 15 días</option>
+                  <option value="30" selected>Últimos 30 días</option>
+                  <option value="60">Últimos 60 días</option>
+                  <option value="0">Personalizado</option>
+                </select>
+                <div id="mlFechaPersonalizada" style="display:none;gap:6px;align-items:center;" class="toolbar">
+                  <input type="date" id="mlFechaDesde" onchange="renderVentasML()" style="padding:6px 8px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                  <span style="font-size:12px;color:var(--text-soft);">hasta</span>
+                  <input type="date" id="mlFechaHasta" onchange="renderVentasML()" style="padding:6px 8px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                </div>
+              </div>
+            </div>
+            <!-- Stats del período -->
+            <div style="padding:12px 16px;border-bottom:1px solid var(--border);">
+              <div class="stats-grid" id="mlVentasStats" style="margin:0;"></div>
+            </div>
+            <!-- Tabla de ventas -->
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Fecha</th><th>SKU</th><th>Producto</th><th>Cant.</th><th>Ingreso por venta ($)</th><th>Recibí ($)</th><th>Nro. Venta</th></tr></thead>
+                <tbody id="mlVentasBody"></tbody>
+              </table>
+              <div class="empty" id="mlVentasEmpty" style="display:none;"><div class="icon">💸</div><p>Sin ventas ML en el período seleccionado.</p></div>
+            </div>
+          </div>
+
           <div class="card" style="margin-bottom:20px;">
             <div class="card-header"><h3>📥 Importar reporte de MercadoLibre</h3></div>
             <div style="padding:16px;">
@@ -2404,7 +2438,7 @@ async function mostrarSeccion(id){
   if(id==="movimientos") renderMovimientos();
   if(id==="cuentacorriente") renderCC();
   if(id==="compras"){ renderCompras(); actualizarSkuListCompras(); }
-  if(id==="ventas"){ renderVentas(); }
+  if(id==="ventas"){ renderVentas(); renderVentasML(); }
   if(id==="pedidos"){ renderPedidos(); }
   if(id==="ml"){ verificarTokenML(); }
   if(id==="analisis") renderAnalisis();
@@ -4338,6 +4372,68 @@ function logML(msg){
 window.addEventListener("load", function(){
   if(window.location.search.includes("code=")) manejarCallbackML();
 });
+
+
+// ── Ventas ML filtradas por período ──
+function renderVentasML(){
+  const periodo = parseInt(document.getElementById("mlVentasPeriodo")?.value||"30");
+  const personWrap = document.getElementById("mlFechaPersonalizada");
+
+  if(periodo===0){
+    if(personWrap) personWrap.style.display="flex";
+  } else {
+    if(personWrap) personWrap.style.display="none";
+  }
+
+  const hoy = new Date();
+  let desde, hasta;
+
+  if(periodo===0){
+    const d = document.getElementById("mlFechaDesde")?.value;
+    const h = document.getElementById("mlFechaHasta")?.value;
+    if(!d||!h) return;
+    desde = new Date(d);
+    hasta = new Date(h);
+    hasta.setHours(23,59,59);
+  } else {
+    hasta = new Date();
+    desde = new Date();
+    desde.setDate(desde.getDate()-periodo);
+  }
+
+  const lista = ventas.filter(v=>{
+    if(v.canal!=="ML") return false;
+    const f = new Date(v.fecha);
+    return f>=desde && f<=hasta;
+  }).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+
+  const tbody = document.getElementById("mlVentasBody");
+  const empty = document.getElementById("mlVentasEmpty");
+  const statsEl = document.getElementById("mlVentasStats");
+
+  // Stats del período
+  const totalUnid = lista.reduce((a,v)=>a+v.cantidad,0);
+  const totalIngreso = lista.reduce((a,v)=>a+(v.precio*v.cantidad),0);
+  const totalNeto = lista.reduce((a,v)=>a+(v.totalNeto||v.ingresoBruto||v.precio*v.cantidad),0);
+  if(statsEl) statsEl.innerHTML =
+    `<div class="stat-card"><div class="label">Ventas</div><div class="value">${lista.length}</div></div>
+     <div class="stat-card"><div class="label">Unidades</div><div class="value">${totalUnid}</div></div>
+     <div class="stat-card"><div class="label">Ingreso bruto</div><div class="value blue">$${fmt(totalIngreso)}</div></div>
+     <div class="stat-card"><div class="label">Recibí neto</div><div class="value green">$${fmt(totalNeto)}</div></div>`;
+
+  if(!lista.length){ if(tbody) tbody.innerHTML=""; if(empty) empty.style.display="block"; return; }
+  if(empty) empty.style.display="none";
+
+  if(tbody) tbody.innerHTML = lista.map(v=>`<tr>
+    <td>${v.fecha}</td>
+    <td><span class="sku-tag">${esc(v.sku)}</span></td>
+    <td style="max-width:180px;">${esc(v.producto||"")}</td>
+    <td class="num">${v.cantidad}</td>
+    <td class="num">$${fmt(v.precio*v.cantidad)}</td>
+    <td class="num num-pos">$${fmt(v.totalNeto||v.ingresoBruto||v.precio*v.cantidad)}</td>
+    <td style="font-size:11px;color:var(--text-soft);">${esc(v.nroVenta||"")}</td>
+  </tr>`).join("");
+}
 
 // ── Sidebar mobile ──
 function openSidebar(){
