@@ -4050,7 +4050,7 @@ async function renovarTokenML(refreshToken){
   try{
     const r = await fetch("https://piqkwewxbjumyqwtmnxn.supabase.co/functions/v1/ml-oauth", {
       method:"POST",
-      headers:{"Content-Type":"application/json","apikey":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I"},
+      headers:{"Content-Type":"application/json","apikey":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I","Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I"},
       body: JSON.stringify({grant_type:"refresh_token", refresh_token: refreshToken})
     });
     if(!r.ok) return null;
@@ -4157,7 +4157,7 @@ async function manejarCallbackML(){
   try{
     const r = await fetch("https://piqkwewxbjumyqwtmnxn.supabase.co/functions/v1/ml-oauth", {
       method:"POST",
-      headers:{"Content-Type":"application/json","apikey":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I"},
+      headers:{"Content-Type":"application/json","apikey":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I","Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I"},
       body: JSON.stringify({grant_type:"authorization_code", code: code})
     });
     const data = await r.json();
