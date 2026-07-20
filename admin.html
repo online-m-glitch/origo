@@ -4278,13 +4278,36 @@ async function sincronizarStockML(){
       const items = await r2.json();
       for(const item of items){
         const body = item.body||item;
-        const sku = (body.seller_sku||"").toUpperCase().trim();
         const qty = body.available_quantity||0;
-        if(!sku) continue;
+        const titulo = (body.title||"").toUpperCase().trim();
+        // seller_sku puede estar en varios campos según el tipo de publicación
+        let sku = (body.seller_sku||body.seller_custom_field||"").toUpperCase().trim();
+        // También buscar en attributes (array de {id, value_name})
+        if(!sku && body.attributes){
+          const skuAttr = body.attributes.find(a=>a.id==="SELLER_SKU"||a.id==="SKU");
+          if(skuAttr) sku = (skuAttr.value_name||"").toUpperCase().trim();
+        }
+
+        // Si no hay seller_sku, buscar por título en el catálogo
+        if(!sku && titulo){
+          const prod = productos.find(p=>{
+            const nombre = (p.nombre||"").toUpperCase();
+            const skuUp = (p.sku||"").toUpperCase();
+            // Match exacto por SKU en título, o por nombre parcial
+            if(titulo.includes(skuUp) && skuUp.length>2) return true;
+            // Match por palabras clave del nombre (mínimo 3 palabras que coincidan)
+            const palabras = nombre.split(" ").filter(w=>w.length>3);
+            const coinciden = palabras.filter(w=>titulo.includes(w)).length;
+            return coinciden >= Math.min(3, palabras.length);
+          });
+          if(prod) sku = prod.sku;
+        }
+
+        if(!sku){ logML("Sin SKU: "+titulo.substring(0,40)); continue; }
         stockML[sku]=qty;
         promises.push(sbGuardar("stockml",{sku,cantidad:qty}).catch(()=>{}));
         actualizados++;
-        logML("Stock "+sku+": "+qty+" unidades");
+        logML("Stock "+sku+": "+qty+" unidades ("+titulo.substring(0,30)+")");
       }
     }
 
