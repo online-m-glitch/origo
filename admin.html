@@ -870,6 +870,7 @@ tr:hover td{background:#fafbfc;}
             <div class="card-header">
               <h3>📊 Ventas MercadoLibre</h3>
               <div class="toolbar">
+                <input class="search-input" type="text" id="mlVentasBuscar" placeholder="Buscar SKU, título o MLA…" oninput="renderVentasML()">
                 <select id="mlVentasPeriodo" onchange="renderVentasML()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
                   <option value="7">Últimos 7 días</option>
                   <option value="15">Últimos 15 días</option>
@@ -942,6 +943,39 @@ tr:hover td{background:#fafbfc;}
 
         <!-- TAB: Tienda -->
         <div id="vpanel-tienda" style="display:none;">
+
+          <!-- Ventas Tienda filtradas -->
+          <div class="card" style="margin-bottom:20px;">
+            <div class="card-header">
+              <h3>📊 Ventas Tienda</h3>
+              <div class="toolbar">
+                <input class="search-input" type="text" id="tVentasBuscar" placeholder="Buscar SKU o producto…" oninput="renderVentasTienda()">
+                <select id="tVentasPeriodo" onchange="renderVentasTienda()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                  <option value="7">Últimos 7 días</option>
+                  <option value="15">Últimos 15 días</option>
+                  <option value="30" selected>Últimos 30 días</option>
+                  <option value="60">Últimos 60 días</option>
+                  <option value="0">Personalizado</option>
+                </select>
+                <div id="tFechaPersonalizada" style="display:none;gap:6px;align-items:center;" class="toolbar">
+                  <input type="date" id="tFechaDesde" onchange="renderVentasTienda()" style="padding:6px 8px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                  <span style="font-size:12px;color:var(--text-soft);">hasta</span>
+                  <input type="date" id="tFechaHasta" onchange="renderVentasTienda()" style="padding:6px 8px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                </div>
+              </div>
+            </div>
+            <div style="padding:12px 16px;border-bottom:1px solid var(--border);">
+              <div class="stats-grid" id="tVentasStats" style="margin:0;"></div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Fecha</th><th>SKU</th><th>Producto</th><th>Cant.</th><th>Precio unit. ($)</th><th>Total ($)</th></tr></thead>
+                <tbody id="tVentasBody"></tbody>
+              </table>
+              <div class="empty" id="tVentasEmpty" style="display:none;"><div class="icon">🏪</div><p>Sin ventas de tienda en el período.</p></div>
+            </div>
+          </div>
+
           <div class="card" style="margin-bottom:20px;">
             <div class="card-header"><h3>🏪 Registrar venta de tienda</h3></div>
             <div style="padding:16px;">
@@ -984,12 +1018,19 @@ tr:hover td{background:#fafbfc;}
             <div class="card-header">
               <h3>Historial de ventas</h3>
               <div class="toolbar">
+                <input class="search-input" type="text" id="vBuscar" placeholder="Buscar SKU, producto o MLA…" oninput="renderVentas()">
                 <select id="vFiltroOrigen" onchange="renderVentas()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
                   <option value="">Todos los canales</option>
                   <option value="ML">MercadoLibre</option>
                   <option value="Tienda">Tienda</option>
                 </select>
-                <input class="search-input" type="text" id="vBuscar" placeholder="Buscar SKU…" oninput="renderVentas()">
+                <select id="vFiltroPeriodo" onchange="renderVentas()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                  <option value="0">Todos los períodos</option>
+                  <option value="7">Últimos 7 días</option>
+                  <option value="15">Últimos 15 días</option>
+                  <option value="30">Últimos 30 días</option>
+                  <option value="60">Últimos 60 días</option>
+                </select>
               </div>
             </div>
             <div class="table-wrap">
@@ -2438,7 +2479,7 @@ async function mostrarSeccion(id){
   if(id==="movimientos") renderMovimientos();
   if(id==="cuentacorriente") renderCC();
   if(id==="compras"){ renderCompras(); actualizarSkuListCompras(); }
-  if(id==="ventas"){ renderVentas(); renderVentasML(); }
+  if(id==="ventas"){ renderVentas(); renderVentasML(); renderVentasTienda(); }
   if(id==="pedidos"){ renderPedidos(); }
   if(id==="ml"){ verificarTokenML(); }
   if(id==="analisis") renderAnalisis();
@@ -2484,6 +2525,7 @@ function vtab(id){
   });
   if(id==='tienda'){
     actualizarSkuList();
+    renderVentasTienda();
   }
   if(id==='historial') renderVentas();
 }
@@ -2912,10 +2954,15 @@ async function registrarVentaTienda(){
 function renderVentas(){
   const q=(document.getElementById('vBuscar')?.value||'').toLowerCase();
   const origen=document.getElementById('vFiltroOrigen')?.value||'';
-  const lista=ventas.filter(v=>
-    (!origen||v.canal===origen) &&
-    (!q||v.sku.toLowerCase().includes(q)||(v.producto||'').toLowerCase().includes(q))
-  );
+  const periodo=parseInt(document.getElementById('vFiltroPeriodo')?.value||'0');
+  const ahora=new Date();
+  const desdeH=periodo>0?new Date(ahora.getTime()-periodo*24*60*60*1000):null;
+  const lista=ventas.filter(v=>{
+    if(origen&&v.canal!==origen) return false;
+    if(desdeH&&new Date(v.fecha)<desdeH) return false;
+    if(q&&!(v.sku||'').toLowerCase().includes(q)&&!(v.producto||'').toLowerCase().includes(q)&&!(v.nroVenta||'').toLowerCase().includes(q)) return false;
+    return true;
+  });
   const tbody=document.getElementById('ventasBody');
   const empty=document.getElementById('ventasEmpty');
   if(!lista.length){ tbody.innerHTML=''; empty.style.display='block'; return; }
@@ -4374,6 +4421,57 @@ window.addEventListener("load", function(){
 });
 
 
+
+// ── Ventas Tienda filtradas por período ──
+function renderVentasTienda(){
+  const periodo = parseInt(document.getElementById("tVentasPeriodo")?.value||"30");
+  const personWrap = document.getElementById("tFechaPersonalizada");
+  if(personWrap) personWrap.style.display = periodo===0?"flex":"none";
+
+  const hoy = new Date();
+  let desde, hasta;
+  if(periodo===0){
+    const d=document.getElementById("tFechaDesde")?.value;
+    const h=document.getElementById("tFechaHasta")?.value;
+    if(!d||!h) return;
+    desde=new Date(d); hasta=new Date(h); hasta.setHours(23,59,59);
+  } else {
+    hasta=new Date(); desde=new Date();
+    desde.setDate(desde.getDate()-periodo);
+  }
+
+  const buscar=(document.getElementById("tVentasBuscar")?.value||"").toLowerCase().trim();
+  const lista=ventas.filter(v=>{
+    if(v.canal!=="Tienda") return false;
+    const f=new Date(v.fecha);
+    if(f<desde||f>hasta) return false;
+    if(buscar) return (v.sku||"").toLowerCase().includes(buscar)||(v.producto||"").toLowerCase().includes(buscar);
+    return true;
+  }).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+
+  const tbody=document.getElementById("tVentasBody");
+  const empty=document.getElementById("tVentasEmpty");
+  const statsEl=document.getElementById("tVentasStats");
+
+  const totalUnid=lista.reduce((a,v)=>a+v.cantidad,0);
+  const totalV=lista.reduce((a,v)=>a+(v.precio*v.cantidad),0);
+  if(statsEl) statsEl.innerHTML=
+    `<div class="stat-card"><div class="label">Ventas</div><div class="value">${lista.length}</div></div>
+     <div class="stat-card"><div class="label">Unidades</div><div class="value">${totalUnid}</div></div>
+     <div class="stat-card"><div class="label">Total vendido</div><div class="value green">$${fmt(totalV)}</div></div>`;
+
+  if(!lista.length){if(tbody)tbody.innerHTML="";if(empty)empty.style.display="block";return;}
+  if(empty)empty.style.display="none";
+  if(tbody)tbody.innerHTML=lista.map(v=>`<tr>
+    <td>${v.fecha}</td>
+    <td><span class="sku-tag">${esc(v.sku)}</span></td>
+    <td style="max-width:180px;">${esc(v.producto||"")}</td>
+    <td class="num">${v.cantidad}</td>
+    <td class="num">$${fmt(v.precio)}</td>
+    <td class="num" style="font-weight:700;">$${fmt(v.precio*v.cantidad)}</td>
+  </tr>`).join("");
+}
+
 // ── Ventas ML filtradas por período ──
 function renderVentasML(){
   const periodo = parseInt(document.getElementById("mlVentasPeriodo")?.value||"30");
@@ -4401,10 +4499,17 @@ function renderVentasML(){
     desde.setDate(desde.getDate()-periodo);
   }
 
+  const buscarML = (document.getElementById("mlVentasBuscar")?.value||"").toLowerCase().trim();
   const lista = ventas.filter(v=>{
     if(v.canal!=="ML") return false;
     const f = new Date(v.fecha);
-    return f>=desde && f<=hasta;
+    if(f<desde||f>hasta) return false;
+    if(buscarML){
+      return (v.sku||"").toLowerCase().includes(buscarML)||
+             (v.producto||"").toLowerCase().includes(buscarML)||
+             (v.nroVenta||"").toLowerCase().includes(buscarML);
+    }
+    return true;
   }).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
 
   const tbody = document.getElementById("mlVentasBody");
