@@ -1865,11 +1865,17 @@ async function verificarMlItem(){
   const el=document.getElementById("pMlItemCheck");
   const id=document.getElementById("pMlItemId").value.trim().toUpperCase();
   if(!id){ el.textContent="Ingresá un ID primero (ej: MLA123456789)."; el.style.color="#dc2626"; return; }
+  if(!mlToken){ await verificarTokenML(); }
+  if(!mlToken){ el.textContent="⚠️ Conectá con MercadoLibre primero (pestaña MercadoLibre API)."; el.style.color="#dc2626"; return; }
   el.textContent="Consultando..."; el.style.color="#6b7280";
   try{
-    const r=await fetch("https://api.mercadolibre.com/items/"+encodeURIComponent(id));
-    if(!r.ok){ el.textContent="❌ No se encontró esa publicación en ML."; el.style.color="#dc2626"; return; }
+    const r=await fetch(SB_URL+"/functions/v1/ml-oauth", {
+      method:"POST",
+      headers:{"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY},
+      body:JSON.stringify({grant_type:"proxy", path:"/items/"+encodeURIComponent(id), access_token:mlToken})
+    });
     const data=await r.json();
+    if(!r.ok || data.error || !data.id){ el.textContent="❌ No se encontró esa publicación en ML."; el.style.color="#dc2626"; return; }
     const precio=(data.price!=null)?("$"+Number(data.price).toLocaleString("es-AR")):"";
     el.textContent="✅ "+(data.title||"(sin título)")+(precio?" — "+precio:"");
     el.style.color="#16a34a";
