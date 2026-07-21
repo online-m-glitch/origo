@@ -1050,18 +1050,21 @@ tr:hover td{background:#fafbfc;}
     <!-- ========== ANÁLISIS ML ========== -->
     <div id="sec-analisis" class="section">
       <div class="page-header">
-        <div><h2>Análisis MercadoLibre</h2><div class="sub">Comisión 10% + Impuesto 10% sobre precio ML</div></div>
+        <div><h2>Análisis MercadoLibre</h2><div class="sub">Comisión real de ML cuando está sincronizada (✓) — estimado 10% si no (*) — Impuesto 10% estimado sobre precio ML</div></div>
       </div>
       <div style="padding:24px;">
         <div class="card">
           <div class="card-header">
             <h3>Rentabilidad por producto</h3>
-            <select id="analisisFiltro" onchange="renderAnalisis()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
-              <option value="">Todos</option>
-              <option value="Rentable">Solo rentables</option>
-              <option value="Revisar">A revisar</option>
-              <option value="Pérdida">Con pérdida</option>
-            </select>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <button class="btn btn-ghost" onclick="sincronizarFeesML()">🔄 Sincronizar comisiones ML</button>
+              <select id="analisisFiltro" onchange="renderAnalisis()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                <option value="">Todos</option>
+                <option value="Rentable">Solo rentables</option>
+                <option value="Revisar">A revisar</option>
+                <option value="Pérdida">Con pérdida</option>
+              </select>
+            </div>
           </div>
           <div class="table-wrap">
             <table>
@@ -1504,6 +1507,7 @@ let productos = [];
 let movimientos = [];
 let cuentaCorriente = [];
 let stockML = {}; // { sku: cantidadFullML }
+let feesML = {}; // { sku: {fee_amount, fee_pct} } comisión real ML
 let editandoProdIdx = -1;
 let confirmCb = null;
 let compras = [];
@@ -1599,19 +1603,22 @@ async function iniciar(){
 async function cargarDatos(){
   mostrarCargando(true);
   try{
-    const [prods, movs, cc, sml, comps, vents] = await Promise.all([
+    const [prods, movs, cc, sml, comps, vents, mlf] = await Promise.all([
       sbGet("productos","order=sku.asc"),
       sbGet("movimientos","order=created_at.desc&limit=2000"),
       sbGet("cuenta_corriente","order=created_at.desc"),
       sbGet("stock_ml","select=sku,cantidad"),
       sbGet("compras","order=created_at.desc"),
-      sbGet("ventas","order=created_at.desc&limit=2000")
+      sbGet("ventas","order=created_at.desc&limit=2000"),
+      sbGet("ml_fees","select=sku,fee_amount,fee_pct")
     ]);
     productos = prods||[];
     movimientos = movs||[];
     cuentaCorriente = cc||[];
     stockML = {};
     (sml||[]).forEach(function(r){ stockML[r.sku]=r.cantidad; });
+    feesML = {};
+    (mlf||[]).forEach(function(r){ feesML[r.sku]={fee_amount:r.fee_amount, fee_pct:r.fee_pct}; });
     compras = (comps||[]).map(function(c){
       return Object.assign({},c,{lineas: typeof c.lineas==="string"?JSON.parse(c.lineas):(c.lineas||[])});
     });
@@ -1651,6 +1658,7 @@ async function sbGuardar(tipo, data){
     if(tipo==="cc")            { await sbInsert("cuenta_corriente", data); }
     if(tipo==="deleteCc")      { await sbDelete("cuenta_corriente","id=eq."+data); }
     if(tipo==="stockml")       { await sbUpsert("stock_ml",{sku:data.sku,cantidad:data.cantidad,updated_at:new Date().toISOString()}); }
+    if(tipo==="mlfee")         { await sbUpsert("ml_fees",{sku:data.sku, ml_item_id:data.ml_item_id, fee_amount:data.fee_amount, fee_pct:data.fee_pct, raw:data.raw, updated_at:new Date().toISOString()}); }
     if(tipo==="compra")        { const r=await sbInsert("compras",Object.assign({},data,{lineas:JSON.stringify(data.lineas)})); return r; }
     if(tipo==="deleteCompra")  { await sbDelete("compras","id=eq."+data); }
     if(tipo==="venta")         { const r=await sbInsert("ventas",data); return r; }
@@ -2244,7 +2252,9 @@ function eliminarCC(idx){
 // ================================================================
 function calcAnaliML(p){
   const precio=p.precio||0, costo=p.costo||0;
-  const comision=precio*0.10;
+  const feeReal=feesML[p.sku];
+  const comisionReal = feeReal && precio>0;
+  const comision = comisionReal ? (feeReal.fee_amount||(precio*(feeReal.fee_pct||0)/100)) : precio*0.10;
   const impuesto=precio*0.10;
   const recibis=precio-comision-impuesto;
   const margen=recibis-costo;
@@ -2253,7 +2263,7 @@ function calcAnaliML(p){
   if(margenPct>=25){ rec="Rentable"; cls="badge-green"; }
   else if(margenPct>=10){ rec="Revisar"; cls="badge-orange"; }
   else { rec="Pérdida"; cls="badge-red"; }
-  return { comision, impuesto, recibis, margen, margenPct, rec, cls };
+  return { comision, impuesto, recibis, margen, margenPct, rec, cls, comisionReal };
 }
 function renderAnalisis(){
   const filtro=document.getElementById("analisisFiltro").value;
@@ -2268,7 +2278,7 @@ function renderAnalisis(){
       <td style="max-width:180px;">${esc(p.nombre)}</td>
       <td class="num">$${fmt(p.costo)}</td>
       <td class="num">$${fmt(p.precio)}</td>
-      <td class="num" style="color:var(--orange);">$${fmt(a.comision)}</td>
+      <td class="num" style="color:var(--orange);" title="${a.comisionReal?'Comisión real sincronizada con ML':'Comisión estimada (10%) — sincronizá para tener el dato real'}">$${fmt(a.comision)}${a.comisionReal?' ✓':' *'}</td>
       <td class="num" style="color:var(--orange);">$${fmt(a.impuesto)}</td>
       <td class="num" style="font-weight:700;">$${fmt(a.recibis)}</td>
       <td class="num ${a.margen>=0?'num-pos':'num-neg'}">$${fmt(a.margen)}</td>
@@ -2276,6 +2286,56 @@ function renderAnalisis(){
       <td><span class="badge ${a.cls}">${a.rec}</span></td>
     </tr>`;
   }).join("")||`<tr><td colspan="10" style="text-align:center;padding:24px;color:var(--text-soft);">Sin productos.</td></tr>`;
+}
+
+// ── Sincronizar comisiones reales desde ML (/items/:id/fees) ──
+async function sincronizarFeesML(){
+  if(checkViewer("Sincronizar comisiones ML")) return;
+  if(!mlToken){ await verificarTokenML(); }
+  if(!mlToken){ toast("Primero conectá con MercadoLibre.","err"); return; }
+
+  const conML = productos.filter(p=>p.ml_item_id);
+  if(!conML.length){ toast("No hay productos con Publicación ML vinculada todavía.","err"); return; }
+
+  mostrarCargando(true);
+  let ok=0, fail=0;
+  try{
+    for(let i=0;i<conML.length;i+=10){
+      const lote = conML.slice(i,i+10);
+      const resultados = await Promise.all(lote.map(p=>
+        fetch(SB_URL+"/functions/v1/ml-oauth", {
+          method:"POST",
+          headers:{"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY},
+          body:JSON.stringify({grant_type:"proxy", path:"/items/"+encodeURIComponent(p.ml_item_id)+"/fees?price="+(p.precio||0), access_token:mlToken})
+        }).then(r=>r.json().then(data=>({sku:p.sku, ml_item_id:p.ml_item_id, precio:p.precio, ok:r.ok, data})))
+         .catch(e=>({sku:p.sku, ml_item_id:p.ml_item_id, ok:false, error:e.message}))
+      ));
+
+      for(const res of resultados){
+        if(!res.ok || !res.data || res.data.error){ fail++; console.warn("Fee no disponible para",res.sku,res.data||res.error); continue; }
+        // La forma exacta de la respuesta puede variar según el tipo de publicación;
+        // buscamos el monto de comisión donde suele venir.
+        const d=res.data;
+        let feeAmount = d.sale_fee_amount;
+        if(feeAmount==null && Array.isArray(d.listing_type_fees) && d.listing_type_fees[0]){
+          feeAmount = d.listing_type_fees[0].sale_fee_amount;
+        }
+        if(feeAmount==null && Array.isArray(d.listing_prices) && d.listing_prices[0]){
+          feeAmount = d.listing_prices[0].sale_fee_amount;
+        }
+        feeAmount = feeAmount||0;
+        const feePct = res.precio>0 ? (feeAmount/res.precio*100) : 0;
+        feesML[res.sku]={fee_amount:feeAmount, fee_pct:feePct};
+        await sbGuardar("mlfee",{sku:res.sku, ml_item_id:res.ml_item_id, fee_amount:feeAmount, fee_pct:feePct, raw:d}).catch(()=>{});
+        ok++;
+      }
+    }
+  }catch(e){
+    toast("Error sincronizando comisiones: "+e.message,"err",6000);
+  }
+  mostrarCargando(false);
+  renderAnalisis();
+  toast(`Comisiones sincronizadas: ${ok} ✅` + (fail?` — ${fail} sin datos`:""), fail?"err":"ok");
 }
 
 
