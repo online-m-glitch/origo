@@ -1248,7 +1248,11 @@ tr:hover td{background:#fafbfc;}
       </div>
       <div class="form-group">
         <label>Publicación ML (MLA)</label>
-        <input type="text" id="pMlItemId" placeholder="Ej: MLA123456789">
+        <div style="display:flex;gap:6px;">
+          <input type="text" id="pMlItemId" placeholder="Ej: MLA123456789" style="flex:1;">
+          <button type="button" class="btn btn-ghost" style="white-space:nowrap;" onclick="verificarMlItem()">🔍 Verificar</button>
+        </div>
+        <div id="pMlItemCheck" style="font-size:11px;margin-top:4px;"></div>
       </div>
     </div>
 
@@ -1821,6 +1825,7 @@ function abrirModalProducto(){
   document.getElementById("modalProdTitle").textContent="Nuevo producto";
   ["pSku","pNombre","pProveedor","pCategoria","pRubro","pCosto","pPrecio","pPrecioTienda","pImg","pImgFile","pStockInicial","pMlItemId"].forEach(id=>document.getElementById(id).value="");
   document.getElementById("pMargen").value="";
+  document.getElementById("pMlItemCheck").textContent="";
   document.getElementById("pSku").disabled=false;
   document.getElementById("pStockMin").value="15";
   document.getElementById("pStockOn").value="1";
@@ -1844,6 +1849,7 @@ function editarProducto(idx){
   document.getElementById("pStockMin").value=p.stockMin||15;
   document.getElementById("pStockOn").value=(p.stockOn!==0)?1:0;
   document.getElementById("pMlItemId").value=p.ml_item_id||"";
+  document.getElementById("pMlItemCheck").textContent="";
   document.getElementById("pImg").value=(!p.img||p.img.startsWith("data:"))?"":(p.img||"");
   document.getElementById("stockInicialWrap").style.display="none"; // ocultar en edición
   if(p.img){
@@ -1855,6 +1861,22 @@ function editarProducto(idx){
   document.getElementById("modalProducto").classList.add("show");
 }
 function cerrarModalProducto(){ document.getElementById("modalProducto").classList.remove("show"); }
+async function verificarMlItem(){
+  const el=document.getElementById("pMlItemCheck");
+  const id=document.getElementById("pMlItemId").value.trim().toUpperCase();
+  if(!id){ el.textContent="Ingresá un ID primero (ej: MLA123456789)."; el.style.color="#dc2626"; return; }
+  el.textContent="Consultando..."; el.style.color="#6b7280";
+  try{
+    const r=await fetch("https://api.mercadolibre.com/items/"+encodeURIComponent(id));
+    if(!r.ok){ el.textContent="❌ No se encontró esa publicación en ML."; el.style.color="#dc2626"; return; }
+    const data=await r.json();
+    const precio=(data.price!=null)?("$"+Number(data.price).toLocaleString("es-AR")):"";
+    el.textContent="✅ "+(data.title||"(sin título)")+(precio?" — "+precio:"");
+    el.style.color="#16a34a";
+  }catch(e){
+    el.textContent="⚠️ Error al consultar ML: "+e.message; el.style.color="#dc2626";
+  }
+}
 function previewProdImg(){
   const url=document.getElementById("pImg").value.trim();
   const img=document.getElementById("pImgPrev"),ph=document.getElementById("pImgPh");
