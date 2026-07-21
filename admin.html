@@ -1251,6 +1251,7 @@ tr:hover td{background:#fafbfc;}
         <div style="display:flex;gap:6px;">
           <input type="text" id="pMlItemId" placeholder="Ej: MLA123456789" style="flex:1;">
           <button type="button" class="btn btn-ghost" style="white-space:nowrap;" onclick="verificarMlItem()">🔍 Verificar</button>
+          <button type="button" class="btn btn-primary" style="white-space:nowrap;" onclick="actualizarPrecioML()">💲 Actualizar en ML</button>
         </div>
         <div id="pMlItemCheck" style="font-size:11px;margin-top:4px;"></div>
       </div>
@@ -1861,6 +1862,36 @@ function editarProducto(idx){
   document.getElementById("modalProducto").classList.add("show");
 }
 function cerrarModalProducto(){ document.getElementById("modalProducto").classList.remove("show"); }
+async function actualizarPrecioML(){
+  if(checkViewer("Actualizar precio en ML")) return;
+  const el=document.getElementById("pMlItemCheck");
+  const id=document.getElementById("pMlItemId").value.trim().toUpperCase();
+  const precio=parseFloat(document.getElementById("pPrecio").value)||0;
+  if(!id){ el.textContent="Ingresá un ID de ML primero."; el.style.color="#dc2626"; return; }
+  if(!precio){ el.textContent="Cargá un precio válido en \"Precio Venta ML\" primero."; el.style.color="#dc2626"; return; }
+  if(!mlToken){ await verificarTokenML(); }
+  if(!mlToken){ el.textContent="⚠️ Conectá con MercadoLibre primero (pestaña MercadoLibre API)."; el.style.color="#dc2626"; return; }
+  el.textContent="Actualizando precio en ML..."; el.style.color="#6b7280";
+  try{
+    const r=await fetch(SB_URL+"/functions/v1/ml-oauth", {
+      method:"POST",
+      headers:{"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY},
+      body:JSON.stringify({grant_type:"proxy", path:"/items/"+encodeURIComponent(id), method:"PUT", data:{price:precio}, access_token:mlToken})
+    });
+    const data=await r.json();
+    if(!r.ok || data.error){
+      const msg=(data.message||data.error||"Error desconocido");
+      el.textContent="❌ No se pudo actualizar: "+msg; el.style.color="#dc2626";
+      toast("No se pudo actualizar el precio en ML.","err");
+      return;
+    }
+    el.textContent="✅ Precio actualizado en ML a $"+Number(data.price||precio).toLocaleString("es-AR");
+    el.style.color="#16a34a";
+    toast("Precio actualizado en MercadoLibre ✅","ok");
+  }catch(e){
+    el.textContent="⚠️ Error al actualizar: "+e.message; el.style.color="#dc2626";
+  }
+}
 async function verificarMlItem(){
   const el=document.getElementById("pMlItemCheck");
   const id=document.getElementById("pMlItemId").value.trim().toUpperCase();
