@@ -1246,6 +1246,10 @@ tr:hover td{background:#fafbfc;}
           <option value="0">❌ Sin stock (oculto)</option>
         </select>
       </div>
+      <div class="form-group">
+        <label>Publicación ML (MLA)</label>
+        <input type="text" id="pMlItemId" placeholder="Ej: MLA123456789">
+      </div>
     </div>
 
     <!-- Stock inicial (solo en nuevo producto) -->
@@ -1815,7 +1819,7 @@ function renderProductos(){
 function abrirModalProducto(){
   editandoProdIdx=-1;
   document.getElementById("modalProdTitle").textContent="Nuevo producto";
-  ["pSku","pNombre","pProveedor","pCategoria","pRubro","pCosto","pPrecio","pPrecioTienda","pImg","pImgFile","pStockInicial"].forEach(id=>document.getElementById(id).value="");
+  ["pSku","pNombre","pProveedor","pCategoria","pRubro","pCosto","pPrecio","pPrecioTienda","pImg","pImgFile","pStockInicial","pMlItemId"].forEach(id=>document.getElementById(id).value="");
   document.getElementById("pMargen").value="";
   document.getElementById("pSku").disabled=false;
   document.getElementById("pStockMin").value="15";
@@ -1839,6 +1843,7 @@ function editarProducto(idx){
   document.getElementById("pPrecioTienda").value=p.precioTienda||"";
   document.getElementById("pStockMin").value=p.stockMin||15;
   document.getElementById("pStockOn").value=(p.stockOn!==0)?1:0;
+  document.getElementById("pMlItemId").value=p.ml_item_id||"";
   document.getElementById("pImg").value=(!p.img||p.img.startsWith("data:"))?"":(p.img||"");
   document.getElementById("stockInicialWrap").style.display="none"; // ocultar en edición
   if(p.img){
@@ -1889,6 +1894,7 @@ async function guardarProducto(){
     precioTienda:parseFloat(document.getElementById("pPrecioTienda").value)||0,
     stockMin:parseInt(document.getElementById("pStockMin").value)||15,
     stockOn:parseInt(document.getElementById("pStockOn").value),
+    ml_item_id:document.getElementById("pMlItemId").value.trim().toUpperCase()||null,
     img:document.getElementById("pImg").value.trim()||(editandoProdIdx>=0?productos[editandoProdIdx].img:""),
   };
   if(isNuevo){
