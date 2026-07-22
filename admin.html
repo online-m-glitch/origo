@@ -1233,8 +1233,8 @@ tr:hover td{background:#fafbfc;}
         <input type="number" id="pCosto" placeholder="0" oninput="calcMargenModal()">
       </div>
       <div class="form-group">
-        <label>Precio Venta ML ($)</label>
-        <input type="number" id="pPrecio" placeholder="0" oninput="calcMargenModal()">
+        <label>Precio Venta ML ($) <span style="font-weight:400;color:var(--text-soft);">— se actualiza desde Análisis ML</span></label>
+        <input type="number" id="pPrecio" placeholder="0" readonly style="background:#f8f9fa;color:#666;">
       </div>
       <div class="form-group">
         <label>Precio Venta Tienda ($)</label>
@@ -1260,7 +1260,6 @@ tr:hover td{background:#fafbfc;}
         <div style="display:flex;gap:6px;">
           <input type="text" id="pMlItemId" placeholder="Ej: MLA123456789" style="flex:1;">
           <button type="button" class="btn btn-ghost" style="white-space:nowrap;" onclick="verificarMlItem()">🔍 Verificar</button>
-          <button type="button" class="btn btn-primary" style="white-space:nowrap;" onclick="actualizarPrecioML()">💲 Actualizar en ML</button>
         </div>
         <div id="pMlItemCheck" style="font-size:11px;margin-top:4px;"></div>
       </div>
@@ -1617,7 +1616,7 @@ async function cargarDatos(){
       sbGet("stock_ml","select=sku,cantidad"),
       sbGet("compras","order=created_at.desc"),
       sbGet("ventas","order=created_at.desc&limit=2000"),
-      sbGet("ml_fees","select=sku,fee_amount,fee_pct,shipping_cost,fee_fixed"),
+      sbGet("ml_fees","select=sku,fee_amount,fee_pct,shipping_cost,fee_fixed,ml_price"),
       sbGet("app_config","select=key,value")
     ]);
     productos = prods||[];
@@ -1626,7 +1625,7 @@ async function cargarDatos(){
     stockML = {};
     (sml||[]).forEach(function(r){ stockML[r.sku]=r.cantidad; });
     feesML = {};
-    (mlf||[]).forEach(function(r){ feesML[r.sku]={fee_amount:r.fee_amount, fee_pct:r.fee_pct, shipping_cost:r.shipping_cost||0, fee_fixed:r.fee_fixed||0}; });
+    (mlf||[]).forEach(function(r){ feesML[r.sku]={fee_amount:r.fee_amount, fee_pct:r.fee_pct, shipping_cost:r.shipping_cost||0, fee_fixed:r.fee_fixed||0, ml_price:r.ml_price||0}; });
     appConfig = {};
     (cfg||[]).forEach(function(r){ appConfig[r.key]=r.value; });
     compras = (comps||[]).map(function(c){
@@ -1668,7 +1667,7 @@ async function sbGuardar(tipo, data){
     if(tipo==="cc")            { await sbInsert("cuenta_corriente", data); }
     if(tipo==="deleteCc")      { await sbDelete("cuenta_corriente","id=eq."+data); }
     if(tipo==="stockml")       { await sbUpsert("stock_ml",{sku:data.sku,cantidad:data.cantidad,updated_at:new Date().toISOString()}); }
-    if(tipo==="mlfee")         { await sbUpsert("ml_fees",{sku:data.sku, ml_item_id:data.ml_item_id, fee_amount:data.fee_amount, fee_pct:data.fee_pct, shipping_cost:data.shipping_cost||0, fee_fixed:data.fee_fixed||0, raw:data.raw, updated_at:new Date().toISOString()}); }
+    if(tipo==="mlfee")         { await sbUpsert("ml_fees",{sku:data.sku, ml_item_id:data.ml_item_id, fee_amount:data.fee_amount, fee_pct:data.fee_pct, shipping_cost:data.shipping_cost||0, fee_fixed:data.fee_fixed||0, ml_price:data.ml_price||0, raw:data.raw, updated_at:new Date().toISOString()}); }
     if(tipo==="config")        { await sbUpsert("app_config",{key:data.key, value:data.value, updated_at:new Date().toISOString()}); }
     if(tipo==="compra")        { const r=await sbInsert("compras",Object.assign({},data,{lineas:JSON.stringify(data.lineas)})); return r; }
     if(tipo==="deleteCompra")  { await sbDelete("compras","id=eq."+data); }
@@ -1847,6 +1846,7 @@ function abrirModalProducto(){
   document.getElementById("pMargen").value="";
   document.getElementById("pMlItemCheck").textContent="";
   document.getElementById("pSku").disabled=false;
+  document.getElementById("pPrecio").readOnly=false; // producto nuevo: sin ML todavía, se puede cargar precio inicial a mano
   document.getElementById("pStockMin").value="15";
   document.getElementById("pStockOn").value="1";
   document.getElementById("pStockFecha").value=new Date().toISOString().split("T")[0];
@@ -1864,7 +1864,8 @@ function editarProducto(idx){
   document.getElementById("pCategoria").value=p.categoria||"";
   document.getElementById("pRubro").value=p.rubro||"";
   document.getElementById("pCosto").value=p.costo||"";
-  document.getElementById("pPrecio").value=p.precio||"";
+  document.getElementById("pPrecio").value=(feesML[p.sku]&&feesML[p.sku].ml_price>0)?feesML[p.sku].ml_price:(p.precio||"");
+  document.getElementById("pPrecio").readOnly=!!p.ml_item_id; // si ya está vinculado a ML, el precio se maneja desde Análisis
   document.getElementById("pPrecioTienda").value=p.precioTienda||"";
   document.getElementById("pStockMin").value=p.stockMin||15;
   document.getElementById("pStockOn").value=(p.stockOn!==0)?1:0;
@@ -1881,35 +1882,15 @@ function editarProducto(idx){
   document.getElementById("modalProducto").classList.add("show");
 }
 function cerrarModalProducto(){ document.getElementById("modalProducto").classList.remove("show"); }
-async function actualizarPrecioML(){
-  if(checkViewer("Actualizar precio en ML")) return;
-  const el=document.getElementById("pMlItemCheck");
-  const id=document.getElementById("pMlItemId").value.trim().toUpperCase();
-  const precio=parseFloat(document.getElementById("pPrecio").value)||0;
-  if(!id){ el.textContent="Ingresá un ID de ML primero."; el.style.color="#dc2626"; return; }
-  if(!precio){ el.textContent="Cargá un precio válido en \"Precio Venta ML\" primero."; el.style.color="#dc2626"; return; }
-  if(!mlToken){ await verificarTokenML(); }
-  if(!mlToken){ el.textContent="⚠️ Conectá con MercadoLibre primero (pestaña MercadoLibre API)."; el.style.color="#dc2626"; return; }
-  el.textContent="Actualizando precio en ML..."; el.style.color="#6b7280";
-  try{
-    const r=await fetch(SB_URL+"/functions/v1/ml-oauth", {
-      method:"POST",
-      headers:{"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY},
-      body:JSON.stringify({grant_type:"proxy", path:"/items/"+encodeURIComponent(id), method:"PUT", data:{price:precio}, access_token:mlToken})
-    });
-    const data=await r.json();
-    if(!r.ok || data.error){
-      const msg=(data.message||data.error||"Error desconocido");
-      el.textContent="❌ No se pudo actualizar: "+msg; el.style.color="#dc2626";
-      toast("No se pudo actualizar el precio en ML.","err");
-      return;
-    }
-    el.textContent="✅ Precio actualizado en ML a $"+Number(data.price||precio).toLocaleString("es-AR");
-    el.style.color="#16a34a";
-    toast("Precio actualizado en MercadoLibre ✅","ok");
-  }catch(e){
-    el.textContent="⚠️ Error al actualizar: "+e.message; el.style.color="#dc2626";
-  }
+// Función genérica para empujar un precio nuevo a una publicación de ML (usada desde Análisis)
+async function pushPrecioML(mlItemId, nuevoPrecio){
+  const r=await fetch(SB_URL+"/functions/v1/ml-oauth", {
+    method:"POST",
+    headers:{"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY},
+    body:JSON.stringify({grant_type:"proxy", path:"/items/"+encodeURIComponent(mlItemId), method:"PUT", data:{price:nuevoPrecio}, access_token:mlToken})
+  });
+  const data=await r.json();
+  return {ok:(r.ok && !data.error), data};
 }
 async function verificarMlItem(){
   const el=document.getElementById("pMlItemCheck");
@@ -2262,9 +2243,12 @@ function eliminarCC(idx){
 // ANÁLISIS ML
 // ================================================================
 function calcAnaliML(p){
-  const precio=p.precio||0, costo=p.costo||0;
+  const precioCatalogo=p.precio||0, costo=p.costo||0;
   const feeReal=feesML[p.sku];
-  const comisionReal = feeReal && precio>0;
+  const comisionReal = feeReal && precioCatalogo>0;
+  const precioMLReal = comisionReal && feeReal.ml_price>0;
+  const precio = precioMLReal ? feeReal.ml_price : precioCatalogo; // usar el precio REAL de ML cuando está sincronizado
+  const desactualizado = precioMLReal && Math.abs(feeReal.ml_price-precioCatalogo)>0.5; // catálogo distinto de lo que hay publicado en ML
   const comision = comisionReal ? (feeReal.fee_amount||(precio*(feeReal.fee_pct||0)/100)) : precio*0.10;
   const comisionFixed = comisionReal ? (feeReal.fee_fixed||0) : 0;
   const comisionPct = comisionReal ? (comision-comisionFixed) : comision;
@@ -2280,7 +2264,7 @@ function calcAnaliML(p){
   if(margenPct>=25){ rec="Rentable"; cls="badge-green"; }
   else if(margenPct>=10){ rec="Revisar"; cls="badge-orange"; }
   else { rec="Pérdida"; cls="badge-red"; }
-  return { comision, comisionFixed, comisionPct, envio, impuesto, percepcion, recibis, margen, margenPct, rec, cls, comisionReal };
+  return { precio, precioMLReal, desactualizado, comision, comisionFixed, comisionPct, envio, impuesto, percepcion, recibis, margen, margenPct, rec, cls, comisionReal };
 }
 function renderAnalisis(){
   const inpImp=document.getElementById("impuestoPctInput");
@@ -2298,7 +2282,13 @@ function renderAnalisis(){
       <td><span class="sku-tag">${esc(p.sku)}</span></td>
       <td style="max-width:180px;">${esc(p.nombre)}</td>
       <td class="num">$${fmt(p.costo)}</td>
-      <td class="num">$${fmt(p.precio)}</td>
+      <td class="num" title="${a.precioMLReal?(a.desactualizado?'⚠️ Distinto al precio cargado en catálogo ($'+fmt(p.precio)+') — actualizá uno de los dos':'Precio real vigente en la publicación de ML'):'Precio de catálogo (sin sincronizar con ML todavía)'}">
+        <div style="display:flex;gap:4px;align-items:center;justify-content:flex-end;">
+          <input type="number" id="precioAn_${esc(p.sku)}" value="${a.precio||''}" style="width:82px;padding:4px 6px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;text-align:right;" ${p.ml_item_id?'':'disabled title="Vinculá una Publicación ML en Catálogo primero"'}>
+          ${p.ml_item_id?`<button class="btn btn-ghost" style="padding:4px 8px;font-size:11px;" onclick="actualizarPrecioAnalisis('${esc(p.sku)}')" title="Actualizar este precio en MercadoLibre">💲</button>`:''}
+        </div>
+        <div style="font-size:10px;color:${a.desactualizado?'var(--red)':'var(--text-soft)'};text-align:right;">${a.precioMLReal?(a.desactualizado?'⚠️ desactualizado':'✓ real ML'):'* sin sincronizar'}</div>
+      </td>
       <td class="num" style="color:var(--orange);cursor:help;" title="${a.comisionReal?('Cargo por vender: $'+fmt(a.comisionPct)+(a.comisionFixed>0?' + Costo por unidad: $'+fmt(a.comisionFixed):'')):'Comisión estimada (10%) — sincronizá para tener el dato real'}">$${fmt(a.comision)}${a.comisionReal?' ✓':' *'}</td>
       <td class="num" style="color:var(--orange);" title="${a.envio>0?'Costo de envío Full/gratis sincronizado con ML':'Sin datos de envío sincronizados'}">$${fmt(a.envio)}${a.comisionReal?(a.envio>0?' ✓':''):' *'}</td>
       <td class="num" style="color:var(--orange);" title="Estimado configurable, no es un dato real por venta">$${fmt(a.impuesto)} *</td>
@@ -2318,6 +2308,36 @@ async function guardarImpuestoPct(){
   await sbGuardar("config",{key:"impuesto_pct", value:val}).catch(()=>{});
   renderAnalisis();
   toast("Impuesto estimado actualizado a "+val+"%","ok");
+}
+
+async function actualizarPrecioAnalisis(sku){
+  if(checkViewer("Actualizar precio en ML")) return;
+  const p=productos.find(x=>x.sku===sku);
+  if(!p || !p.ml_item_id){ toast("Este producto no tiene Publicación ML vinculada.","err"); return; }
+  const input=document.getElementById("precioAn_"+sku);
+  const nuevoPrecio=parseFloat(input.value)||0;
+  if(!nuevoPrecio){ toast("Cargá un precio válido primero.","err"); return; }
+  if(!mlToken){ await verificarTokenML(); }
+  if(!mlToken){ toast("Primero conectá con MercadoLibre.","err"); return; }
+
+  mostrarCargando(true);
+  try{
+    const res=await pushPrecioML(p.ml_item_id, nuevoPrecio);
+    if(!res.ok){
+      toast("No se pudo actualizar: "+(res.data.message||res.data.error||"error desconocido"),"err",6000);
+      mostrarCargando(false);
+      return;
+    }
+    // Actualizamos el precio real guardado localmente para que el análisis lo refleje ya mismo
+    if(!feesML[sku]) feesML[sku]={fee_amount:0,fee_pct:0,shipping_cost:0,fee_fixed:0,ml_price:0};
+    feesML[sku].ml_price = res.data.price||nuevoPrecio;
+    await sbGuardar("mlfee",{sku, ml_item_id:p.ml_item_id, fee_amount:feesML[sku].fee_amount, fee_pct:feesML[sku].fee_pct, shipping_cost:feesML[sku].shipping_cost, fee_fixed:feesML[sku].fee_fixed, ml_price:feesML[sku].ml_price, raw:{}}).catch(()=>{});
+    toast("Precio actualizado en MercadoLibre ✅","ok");
+    renderAnalisis();
+  }catch(e){
+    toast("Error al actualizar: "+e.message,"err",6000);
+  }
+  mostrarCargando(false);
 }
 
 async function guardarPercepcionPct(){
@@ -2408,7 +2428,7 @@ async function sincronizarFeesML(){
     const feeFixed = (opt.sale_fee_details && opt.sale_fee_details.fixed_fee) ? opt.sale_fee_details.fixed_fee : 0;
     const feePct = precio>0 ? (feeAmount/precio*100) : (opt.sale_fee_details&&opt.sale_fee_details.percentage_fee)||0;
 
-    return {sku:p.sku, ml_item_id:p.ml_item_id, feeAmount, feeFixed, feePct, shippingCost, raw:{listing_prices:opt, billable_weight:billableWeight, tag_cuotas:tagCuotas||null}, fail:false};
+    return {sku:p.sku, ml_item_id:p.ml_item_id, feeAmount, feeFixed, feePct, shippingCost, mlPrice:precio, raw:{listing_prices:opt, billable_weight:billableWeight, tag_cuotas:tagCuotas||null}, fail:false};
   }
 
   try{
@@ -2418,8 +2438,8 @@ async function sincronizarFeesML(){
 
       for(const res of resultados){
         if(res.fail){ fail++; console.warn("Fee no disponible para",res.sku,res.motivo); continue; }
-        feesML[res.sku]={fee_amount:res.feeAmount, fee_pct:res.feePct, shipping_cost:res.shippingCost||0, fee_fixed:res.feeFixed||0};
-        await sbGuardar("mlfee",{sku:res.sku, ml_item_id:res.ml_item_id, fee_amount:res.feeAmount, fee_pct:res.feePct, shipping_cost:res.shippingCost||0, fee_fixed:res.feeFixed||0, raw:res.raw}).catch(()=>{});
+        feesML[res.sku]={fee_amount:res.feeAmount, fee_pct:res.feePct, shipping_cost:res.shippingCost||0, fee_fixed:res.feeFixed||0, ml_price:res.mlPrice||0};
+        await sbGuardar("mlfee",{sku:res.sku, ml_item_id:res.ml_item_id, fee_amount:res.feeAmount, fee_pct:res.feePct, shipping_cost:res.shippingCost||0, fee_fixed:res.feeFixed||0, ml_price:res.mlPrice||0, raw:res.raw}).catch(()=>{});
         ok++;
       }
     }
