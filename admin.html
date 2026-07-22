@@ -1060,6 +1060,9 @@ tr:hover td{background:#fafbfc;}
               <label style="font-size:12px;color:var(--text-soft);white-space:nowrap;">Impuesto estimado %:
                 <input type="number" id="impuestoPctInput" step="0.1" min="0" style="width:64px;padding:5px 8px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;margin-left:4px;" onchange="guardarImpuestoPct()">
               </label>
+              <label style="font-size:12px;color:var(--text-soft);white-space:nowrap;">Percepción estimada %:
+                <input type="number" id="percepcionPctInput" step="0.1" min="0" style="width:64px;padding:5px 8px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;margin-left:4px;" onchange="guardarPercepcionPct()">
+              </label>
               <button class="btn btn-ghost" onclick="sincronizarFeesML()">🔄 Sincronizar comisiones ML</button>
               <select id="analisisFiltro" onchange="renderAnalisis()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
                 <option value="">Todos</option>
@@ -1071,7 +1074,7 @@ tr:hover td{background:#fafbfc;}
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>SKU</th><th>Producto</th><th>Costo ($)</th><th>Precio ML ($)</th><th>Comisión ML</th><th>Envío</th><th>Impuesto (est.)</th><th>Recibís ($)</th><th>Margen ($)</th><th>Margen %</th><th>Recomendación</th></tr></thead>
+              <thead><tr><th>SKU</th><th>Producto</th><th>Costo ($)</th><th>Precio ML ($)</th><th>Comisión ML</th><th>Envío</th><th>Impuesto (est.)</th><th>Percepción (est.)</th><th>Recibís ($)</th><th>Margen ($)</th><th>Margen %</th><th>Recomendación</th></tr></thead>
               <tbody id="analisisBody"></tbody>
             </table>
           </div>
@@ -2268,18 +2271,22 @@ function calcAnaliML(p){
   const envio = comisionReal ? (feeReal.shipping_cost||0) : 0; // costo real de envío Full/gratis, solo si está sincronizado
   const impuestoPct = (appConfig.impuesto_pct!=null) ? Number(appConfig.impuesto_pct) : 0; // % estimado, configurable, NO es un dato real por venta
   const impuesto = precio*(impuestoPct/100);
-  const recibis=precio-comision-envio-impuesto;
+  const percepcionPct = (appConfig.percepcion_pct!=null) ? Number(appConfig.percepcion_pct) : 0; // % estimado, configurable, NO es un dato real por venta
+  const percepcion = precio*(percepcionPct/100);
+  const recibis=precio-comision-envio-impuesto-percepcion;
   const margen=recibis-costo;
   const margenPct=precio>0?(margen/precio)*100:0;
   let rec, cls;
   if(margenPct>=25){ rec="Rentable"; cls="badge-green"; }
   else if(margenPct>=10){ rec="Revisar"; cls="badge-orange"; }
   else { rec="Pérdida"; cls="badge-red"; }
-  return { comision, comisionFixed, comisionPct, envio, impuesto, recibis, margen, margenPct, rec, cls, comisionReal };
+  return { comision, comisionFixed, comisionPct, envio, impuesto, percepcion, recibis, margen, margenPct, rec, cls, comisionReal };
 }
 function renderAnalisis(){
   const inpImp=document.getElementById("impuestoPctInput");
   if(inpImp && document.activeElement!==inpImp){ inpImp.value=(appConfig.impuesto_pct!=null)?appConfig.impuesto_pct:0; }
+  const inpPer=document.getElementById("percepcionPctInput");
+  if(inpPer && document.activeElement!==inpPer){ inpPer.value=(appConfig.percepcion_pct!=null)?appConfig.percepcion_pct:0; }
   const filtro=document.getElementById("analisisFiltro").value;
   const lista=productos.filter(p=>{
     if(!filtro) return true;
@@ -2295,12 +2302,13 @@ function renderAnalisis(){
       <td class="num" style="color:var(--orange);cursor:help;" title="${a.comisionReal?('Cargo por vender: $'+fmt(a.comisionPct)+(a.comisionFixed>0?' + Costo por unidad: $'+fmt(a.comisionFixed):'')):'Comisión estimada (10%) — sincronizá para tener el dato real'}">$${fmt(a.comision)}${a.comisionReal?' ✓':' *'}</td>
       <td class="num" style="color:var(--orange);" title="${a.envio>0?'Costo de envío Full/gratis sincronizado con ML':'Sin datos de envío sincronizados'}">$${fmt(a.envio)}${a.comisionReal?(a.envio>0?' ✓':''):' *'}</td>
       <td class="num" style="color:var(--orange);" title="Estimado configurable, no es un dato real por venta">$${fmt(a.impuesto)} *</td>
+      <td class="num" style="color:var(--orange);" title="Estimado configurable, no es un dato real por venta">$${fmt(a.percepcion)} *</td>
       <td class="num" style="font-weight:700;">$${fmt(a.recibis)}</td>
       <td class="num ${a.margen>=0?'num-pos':'num-neg'}">$${fmt(a.margen)}</td>
       <td class="num ${a.margenPct>=25?'num-pos':a.margenPct>=10?'':'num-neg'}">${a.margenPct.toFixed(1)}%</td>
       <td><span class="badge ${a.cls}">${a.rec}</span></td>
     </tr>`;
-  }).join("")||`<tr><td colspan="11" style="text-align:center;padding:24px;color:var(--text-soft);">Sin productos.</td></tr>`;
+  }).join("")||`<tr><td colspan="12" style="text-align:center;padding:24px;color:var(--text-soft);">Sin productos.</td></tr>`;
 }
 
 async function guardarImpuestoPct(){
@@ -2310,6 +2318,15 @@ async function guardarImpuestoPct(){
   await sbGuardar("config",{key:"impuesto_pct", value:val}).catch(()=>{});
   renderAnalisis();
   toast("Impuesto estimado actualizado a "+val+"%","ok");
+}
+
+async function guardarPercepcionPct(){
+  if(checkViewer("Configurar percepción estimada")) return;
+  const val=parseFloat(document.getElementById("percepcionPctInput").value)||0;
+  appConfig.percepcion_pct=val;
+  await sbGuardar("config",{key:"percepcion_pct", value:val}).catch(()=>{});
+  renderAnalisis();
+  toast("Percepción estimada actualizada a "+val+"%","ok");
 }
 
 // ── Sincronizar comisiones reales desde ML (/items/:id/fees) ──
