@@ -493,8 +493,13 @@ tr:hover td{background:#fafbfc;}
       <div style="padding:24px;">
         <div class="card">
           <div class="card-header">
-            <h3>Productos a reponer</h3>
-            <input class="search-input" type="text" id="alertasBuscar" placeholder="Buscar SKU o nombre…" oninput="renderAlertas()">
+            <div class="toolbar">
+              <input class="search-input" type="text" id="alertasBuscar" placeholder="Buscar SKU o nombre…" oninput="renderAlertas()">
+              <select id="alertasProveedorFiltro" onchange="renderAlertas()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                <option value="">Todos los proveedores</option>
+              </select>
+              <button class="btn btn-ghost" onclick="exportarAlertasExcel()">⬇️ Exportar Excel</button>
+            </div>
           </div>
           <div class="table-wrap">
             <table>
@@ -2045,13 +2050,15 @@ async function guardarAjusteFullML(sku){
 // ================================================================
 // ALERTAS
 // ================================================================
-function renderAlertas(){
+function getAlertasFiltradas(){
   const q=(document.getElementById("alertasBuscar")?.value||"").toLowerCase().trim();
-  const alertas = productos.filter(p=>{
+  const provFiltro=document.getElementById("alertasProveedorFiltro")?.value||"";
+  return productos.filter(p=>{
     const dep=calcularStockDeposito(p.sku);
     const full=calcularStockFullML(p.sku);
     const bajoMin=(dep+full)<(p.stockMin||0);
     if(!bajoMin) return false;
+    if(provFiltro && p.proveedor!==provFiltro) return false;
     if(!q) return true;
     return p.sku.toLowerCase().includes(q)||(p.nombre||"").toLowerCase().includes(q)||(p.proveedor||"").toLowerCase().includes(q);
   }).sort((a,b)=>{
@@ -2059,6 +2066,24 @@ function renderAlertas(){
     const sb=(calcularStockDeposito(b.sku)+calcularStockFullML(b.sku));
     return sa-sb;
   });
+}
+
+function renderAlertas(){
+  const selProv=document.getElementById("alertasProveedorFiltro");
+
+  // Poblar el filtro de proveedores una sola vez (o si cambió la lista de proveedores)
+  if(selProv){
+    const proveedores=[...new Set(productos.map(p=>p.proveedor).filter(Boolean))].sort();
+    const actual=selProv.value;
+    const opcionesNuevas='<option value="">Todos los proveedores</option>'+proveedores.map(pv=>`<option value="${esc(pv)}">${esc(pv)}</option>`).join("");
+    if(selProv.dataset.opts!==opcionesNuevas){
+      selProv.innerHTML=opcionesNuevas;
+      selProv.dataset.opts=opcionesNuevas;
+      selProv.value=actual;
+    }
+  }
+
+  const alertas = getAlertasFiltradas();
   const cuerpo=document.getElementById("alertasBody");
   const empty=document.getElementById("alertasEmpty");
   if(!alertas.length){ cuerpo.innerHTML=""; empty.style.display="block"; return; }
@@ -2079,6 +2104,28 @@ function renderAlertas(){
       <td><span class="badge ${urgente?'badge-red':'badge-orange'}">${urgente?'REPONER URGENTE':'Bajo mínimo'}</span></td>
     </tr>`;
   }).join("");
+}
+
+function exportarAlertasExcel(){
+  const alertas=getAlertasFiltradas();
+  if(!alertas.length){ toast("No hay alertas para exportar.","err"); return; }
+  const filas=alertas.map(p=>{
+    const dep=calcularStockDeposito(p.sku), full=calcularStockFullML(p.sku);
+    const total=dep+full, min=p.stockMin||0;
+    const dif=total-min, urgente=total<=0;
+    const costoRepo=Math.abs(dif)*(p.costo||0);
+    return {
+      "SKU":p.sku, "Producto":p.nombre, "Proveedor":p.proveedor||"",
+      "Stock":total, "Mín":min, "Diferencia":dif,
+      "Costo repo ($)":costoRepo, "Estado":urgente?"REPONER URGENTE":"Bajo mínimo"
+    };
+  });
+  const ws=XLSX.utils.json_to_sheet(filas);
+  ws["!cols"]=[{wch:14},{wch:40},{wch:16},{wch:8},{wch:8},{wch:12},{wch:14},{wch:16}];
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,"Alertas de Stock");
+  XLSX.writeFile(wb,"origo_alertas_stock_"+new Date().toISOString().slice(0,10)+".xlsx");
+  toast("Alertas exportadas a Excel ✅","ok");
 }
 
 // ================================================================
