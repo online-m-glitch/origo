@@ -2299,34 +2299,47 @@ async function sincronizarFeesML(){
 
   mostrarCargando(true);
   let ok=0, fail=0;
+
+  async function proxyGet(path){
+    const r=await fetch(SB_URL+"/functions/v1/ml-oauth", {
+      method:"POST",
+      headers:{"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY},
+      body:JSON.stringify({grant_type:"proxy", path, access_token:mlToken})
+    });
+    const data=await r.json();
+    return {ok:r.ok, data};
+  }
+
+  async function procesarUno(p){
+    // 1) Traer el item para conocer category_id y listing_type_id
+    const itemRes = await proxyGet("/items/"+encodeURIComponent(p.ml_item_id));
+    if(!itemRes.ok || !itemRes.data || itemRes.data.error){
+      return {sku:p.sku, fail:true, motivo:itemRes.data};
+    }
+    const item=itemRes.data;
+    const site=(p.ml_item_id.match(/^[A-Z]+/)||["MLA"])[0]; // MLA, MLB, etc. según prefijo del ID
+    const precio=item.price!=null?item.price:(p.precio||0);
+    const qs=new URLSearchParams({price:precio, listing_type_id:item.listing_type_id||"", category_id:item.category_id||""});
+    // 2) Consultar el costo real de venta para ese tipo de publicación/categoría/precio
+    const feeRes = await proxyGet("/sites/"+site+"/listing_prices?"+qs.toString());
+    if(!feeRes.ok || !Array.isArray(feeRes.data) || !feeRes.data.length){
+      return {sku:p.sku, fail:true, motivo:feeRes.data};
+    }
+    const opt = feeRes.data.find(o=>o.listing_type_id===item.listing_type_id) || feeRes.data[0];
+    const feeAmount = opt.sale_fee_amount||0;
+    const feePct = precio>0 ? (feeAmount/precio*100) : (opt.sale_fee_details&&opt.sale_fee_details.percentage_fee)||0;
+    return {sku:p.sku, ml_item_id:p.ml_item_id, feeAmount, feePct, raw:opt, fail:false};
+  }
+
   try{
     for(let i=0;i<conML.length;i+=10){
       const lote = conML.slice(i,i+10);
-      const resultados = await Promise.all(lote.map(p=>
-        fetch(SB_URL+"/functions/v1/ml-oauth", {
-          method:"POST",
-          headers:{"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY},
-          body:JSON.stringify({grant_type:"proxy", path:"/items/"+encodeURIComponent(p.ml_item_id)+"/fees?price="+(p.precio||0), access_token:mlToken})
-        }).then(r=>r.json().then(data=>({sku:p.sku, ml_item_id:p.ml_item_id, precio:p.precio, ok:r.ok, data})))
-         .catch(e=>({sku:p.sku, ml_item_id:p.ml_item_id, ok:false, error:e.message}))
-      ));
+      const resultados = await Promise.all(lote.map(p=>procesarUno(p).catch(e=>({sku:p.sku, fail:true, motivo:e.message}))));
 
       for(const res of resultados){
-        if(!res.ok || !res.data || res.data.error){ fail++; console.warn("Fee no disponible para",res.sku,res.data||res.error); continue; }
-        // La forma exacta de la respuesta puede variar según el tipo de publicación;
-        // buscamos el monto de comisión donde suele venir.
-        const d=res.data;
-        let feeAmount = d.sale_fee_amount;
-        if(feeAmount==null && Array.isArray(d.listing_type_fees) && d.listing_type_fees[0]){
-          feeAmount = d.listing_type_fees[0].sale_fee_amount;
-        }
-        if(feeAmount==null && Array.isArray(d.listing_prices) && d.listing_prices[0]){
-          feeAmount = d.listing_prices[0].sale_fee_amount;
-        }
-        feeAmount = feeAmount||0;
-        const feePct = res.precio>0 ? (feeAmount/res.precio*100) : 0;
-        feesML[res.sku]={fee_amount:feeAmount, fee_pct:feePct};
-        await sbGuardar("mlfee",{sku:res.sku, ml_item_id:res.ml_item_id, fee_amount:feeAmount, fee_pct:feePct, raw:d}).catch(()=>{});
+        if(res.fail){ fail++; console.warn("Fee no disponible para",res.sku,res.motivo); continue; }
+        feesML[res.sku]={fee_amount:res.feeAmount, fee_pct:res.feePct};
+        await sbGuardar("mlfee",{sku:res.sku, ml_item_id:res.ml_item_id, fee_amount:res.feeAmount, fee_pct:res.feePct, raw:res.raw}).catch(()=>{});
         ok++;
       }
     }
