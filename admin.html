@@ -1050,13 +1050,16 @@ tr:hover td{background:#fafbfc;}
     <!-- ========== ANÁLISIS ML ========== -->
     <div id="sec-analisis" class="section">
       <div class="page-header">
-        <div><h2>Análisis MercadoLibre</h2><div class="sub">Comisión y envío reales de ML cuando están sincronizados (✓) — estimado 10% de comisión si no (*) — Retención/IIBB de liquidaciones: pendiente</div></div>
+        <div><h2>Análisis MercadoLibre</h2><div class="sub">Comisión y envío reales de ML cuando están sincronizados (✓) — estimado 10% de comisión si no (*) — Impuesto: % estimado configurable (no es un dato real por venta) — Retención/IIBB de liquidaciones: pendiente</div></div>
       </div>
       <div style="padding:24px;">
         <div class="card">
           <div class="card-header">
             <h3>Rentabilidad por producto</h3>
             <div style="display:flex;gap:8px;align-items:center;">
+              <label style="font-size:12px;color:var(--text-soft);white-space:nowrap;">Impuesto estimado %:
+                <input type="number" id="impuestoPctInput" step="0.1" min="0" style="width:64px;padding:5px 8px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;margin-left:4px;" onchange="guardarImpuestoPct()">
+              </label>
               <button class="btn btn-ghost" onclick="sincronizarFeesML()">🔄 Sincronizar comisiones ML</button>
               <select id="analisisFiltro" onchange="renderAnalisis()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
                 <option value="">Todos</option>
@@ -1068,7 +1071,7 @@ tr:hover td{background:#fafbfc;}
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>SKU</th><th>Producto</th><th>Costo ($)</th><th>Precio ML ($)</th><th>Comisión ML</th><th>Envío</th><th>Recibís ($)</th><th>Margen ($)</th><th>Margen %</th><th>Recomendación</th></tr></thead>
+              <thead><tr><th>SKU</th><th>Producto</th><th>Costo ($)</th><th>Precio ML ($)</th><th>Comisión ML</th><th>Envío</th><th>Impuesto (est.)</th><th>Recibís ($)</th><th>Margen ($)</th><th>Margen %</th><th>Recomendación</th></tr></thead>
               <tbody id="analisisBody"></tbody>
             </table>
           </div>
@@ -1508,6 +1511,7 @@ let movimientos = [];
 let cuentaCorriente = [];
 let stockML = {}; // { sku: cantidadFullML }
 let feesML = {}; // { sku: {fee_amount, fee_pct} } comisión real ML
+let appConfig = {}; // configuración general (ej: impuesto estimado %)
 let editandoProdIdx = -1;
 let confirmCb = null;
 let compras = [];
@@ -1603,14 +1607,15 @@ async function iniciar(){
 async function cargarDatos(){
   mostrarCargando(true);
   try{
-    const [prods, movs, cc, sml, comps, vents, mlf] = await Promise.all([
+    const [prods, movs, cc, sml, comps, vents, mlf, cfg] = await Promise.all([
       sbGet("productos","order=sku.asc"),
       sbGet("movimientos","order=created_at.desc&limit=2000"),
       sbGet("cuenta_corriente","order=created_at.desc"),
       sbGet("stock_ml","select=sku,cantidad"),
       sbGet("compras","order=created_at.desc"),
       sbGet("ventas","order=created_at.desc&limit=2000"),
-      sbGet("ml_fees","select=sku,fee_amount,fee_pct,shipping_cost")
+      sbGet("ml_fees","select=sku,fee_amount,fee_pct,shipping_cost"),
+      sbGet("app_config","select=key,value")
     ]);
     productos = prods||[];
     movimientos = movs||[];
@@ -1619,6 +1624,8 @@ async function cargarDatos(){
     (sml||[]).forEach(function(r){ stockML[r.sku]=r.cantidad; });
     feesML = {};
     (mlf||[]).forEach(function(r){ feesML[r.sku]={fee_amount:r.fee_amount, fee_pct:r.fee_pct, shipping_cost:r.shipping_cost||0}; });
+    appConfig = {};
+    (cfg||[]).forEach(function(r){ appConfig[r.key]=r.value; });
     compras = (comps||[]).map(function(c){
       return Object.assign({},c,{lineas: typeof c.lineas==="string"?JSON.parse(c.lineas):(c.lineas||[])});
     });
@@ -1659,6 +1666,7 @@ async function sbGuardar(tipo, data){
     if(tipo==="deleteCc")      { await sbDelete("cuenta_corriente","id=eq."+data); }
     if(tipo==="stockml")       { await sbUpsert("stock_ml",{sku:data.sku,cantidad:data.cantidad,updated_at:new Date().toISOString()}); }
     if(tipo==="mlfee")         { await sbUpsert("ml_fees",{sku:data.sku, ml_item_id:data.ml_item_id, fee_amount:data.fee_amount, fee_pct:data.fee_pct, shipping_cost:data.shipping_cost||0, raw:data.raw, updated_at:new Date().toISOString()}); }
+    if(tipo==="config")        { await sbUpsert("app_config",{key:data.key, value:data.value, updated_at:new Date().toISOString()}); }
     if(tipo==="compra")        { const r=await sbInsert("compras",Object.assign({},data,{lineas:JSON.stringify(data.lineas)})); return r; }
     if(tipo==="deleteCompra")  { await sbDelete("compras","id=eq."+data); }
     if(tipo==="venta")         { const r=await sbInsert("ventas",data); return r; }
@@ -2256,16 +2264,20 @@ function calcAnaliML(p){
   const comisionReal = feeReal && precio>0;
   const comision = comisionReal ? (feeReal.fee_amount||(precio*(feeReal.fee_pct||0)/100)) : precio*0.10;
   const envio = comisionReal ? (feeReal.shipping_cost||0) : 0; // costo real de envío Full/gratis, solo si está sincronizado
-  const recibis=precio-comision-envio;
+  const impuestoPct = (appConfig.impuesto_pct!=null) ? Number(appConfig.impuesto_pct) : 0; // % estimado, configurable, NO es un dato real por venta
+  const impuesto = precio*(impuestoPct/100);
+  const recibis=precio-comision-envio-impuesto;
   const margen=recibis-costo;
   const margenPct=precio>0?(margen/precio)*100:0;
   let rec, cls;
   if(margenPct>=25){ rec="Rentable"; cls="badge-green"; }
   else if(margenPct>=10){ rec="Revisar"; cls="badge-orange"; }
   else { rec="Pérdida"; cls="badge-red"; }
-  return { comision, envio, recibis, margen, margenPct, rec, cls, comisionReal };
+  return { comision, envio, impuesto, recibis, margen, margenPct, rec, cls, comisionReal };
 }
 function renderAnalisis(){
+  const inpImp=document.getElementById("impuestoPctInput");
+  if(inpImp && document.activeElement!==inpImp){ inpImp.value=(appConfig.impuesto_pct!=null)?appConfig.impuesto_pct:0; }
   const filtro=document.getElementById("analisisFiltro").value;
   const lista=productos.filter(p=>{
     if(!filtro) return true;
@@ -2280,12 +2292,22 @@ function renderAnalisis(){
       <td class="num">$${fmt(p.precio)}</td>
       <td class="num" style="color:var(--orange);" title="${a.comisionReal?'Comisión real sincronizada con ML':'Comisión estimada (10%) — sincronizá para tener el dato real'}">$${fmt(a.comision)}${a.comisionReal?' ✓':' *'}</td>
       <td class="num" style="color:var(--orange);" title="${a.envio>0?'Costo de envío Full/gratis sincronizado con ML':'Sin datos de envío sincronizados'}">$${fmt(a.envio)}${a.comisionReal?(a.envio>0?' ✓':''):' *'}</td>
+      <td class="num" style="color:var(--orange);" title="Estimado configurable, no es un dato real por venta">$${fmt(a.impuesto)} *</td>
       <td class="num" style="font-weight:700;">$${fmt(a.recibis)}</td>
       <td class="num ${a.margen>=0?'num-pos':'num-neg'}">$${fmt(a.margen)}</td>
       <td class="num ${a.margenPct>=25?'num-pos':a.margenPct>=10?'':'num-neg'}">${a.margenPct.toFixed(1)}%</td>
       <td><span class="badge ${a.cls}">${a.rec}</span></td>
     </tr>`;
-  }).join("")||`<tr><td colspan="10" style="text-align:center;padding:24px;color:var(--text-soft);">Sin productos.</td></tr>`;
+  }).join("")||`<tr><td colspan="11" style="text-align:center;padding:24px;color:var(--text-soft);">Sin productos.</td></tr>`;
+}
+
+async function guardarImpuestoPct(){
+  if(checkViewer("Configurar impuesto estimado")) return;
+  const val=parseFloat(document.getElementById("impuestoPctInput").value)||0;
+  appConfig.impuesto_pct=val;
+  await sbGuardar("config",{key:"impuesto_pct", value:val}).catch(()=>{});
+  renderAnalisis();
+  toast("Impuesto estimado actualizado a "+val+"%","ok");
 }
 
 // ── Sincronizar comisiones reales desde ML (/items/:id/fees) ──
@@ -2311,7 +2333,7 @@ async function sincronizarFeesML(){
   }
 
   async function procesarUno(p){
-    // 1) Traer el item para conocer category_id y listing_type_id
+    // 1) Traer el item para conocer category_id, listing_type_id y datos de envío
     const itemRes = await proxyGet("/items/"+encodeURIComponent(p.ml_item_id));
     if(!itemRes.ok || !itemRes.data || itemRes.data.error){
       return {sku:p.sku, fail:true, motivo:itemRes.data};
@@ -2319,8 +2341,35 @@ async function sincronizarFeesML(){
     const item=itemRes.data;
     const site=(p.ml_item_id.match(/^[A-Z]+/)||["MLA"])[0]; // MLA, MLB, etc. según prefijo del ID
     const precio=item.price!=null?item.price:(p.precio||0);
+    const logisticType=(item.shipping&&item.shipping.logistic_type)||"";
+    const shippingMode=(item.shipping&&item.shipping.mode)||"";
+
+    // 2) Si ofrece envío gratis: pedirle a ML el peso facturable ya cargado para esta
+    // publicación y el costo real de envío, en la misma consulta.
+    let billableWeight=null, shippingCost=0;
+    if(item.shipping && item.shipping.free_shipping && mlUserId){
+      const qsFree=new URLSearchParams({item_id:p.ml_item_id, mode:shippingMode||"me2", logistic_type:logisticType, listing_type_id:item.listing_type_id||"", condition:"new", item_price:precio});
+      const freeRes = await proxyGet("/users/"+mlUserId+"/shipping_options/free?"+qsFree.toString());
+      if(freeRes.ok && freeRes.data && freeRes.data.coverage && freeRes.data.coverage.all_country){
+        const cov=freeRes.data.coverage.all_country;
+        billableWeight=cov.billable_weight!=null?cov.billable_weight:null;
+        shippingCost=cov.list_cost||0;
+      } else {
+        console.warn("Envío/peso no disponible para",p.sku,freeRes.data);
+      }
+    }
+
+    // 3) Consultar el costo real de venta, con los parámetros obligatorios en Argentina
+    // (logistic_type, shipping_mode y billable_weight) para que el fixed fee coincida
+    // con lo que realmente se cobra, y el tag de cuotas si la publicación tiene una
+    // campaña activa (se detecta solo, sin necesidad de cargarlo a mano).
+    const TAGS_CUOTAS=["pcj-co-funded","3x_campaign","mshops_pcj-co-funded","mshops_3x_campaign","cuota-simple-3","mshops_cuota-simple-6","ahora-3","ahora-6","ahora-12"];
+    const tagCuotas = Array.isArray(item.tags) ? item.tags.find(t=>TAGS_CUOTAS.includes(t)) : null;
     const qs=new URLSearchParams({price:precio, listing_type_id:item.listing_type_id||"", category_id:item.category_id||""});
-    // 2) Consultar el costo real de venta para ese tipo de publicación/categoría/precio
+    if(logisticType) qs.append("logistic_type",logisticType);
+    if(shippingMode) qs.append("shipping_mode",shippingMode);
+    if(billableWeight!=null) qs.append("billable_weight",billableWeight);
+    if(tagCuotas) qs.append("tags",tagCuotas);
     const feeRes = await proxyGet("/sites/"+site+"/listing_prices?"+qs.toString());
     if(!feeRes.ok || !feeRes.data || feeRes.data.error){
       return {sku:p.sku, fail:true, motivo:feeRes.data};
@@ -2339,19 +2388,7 @@ async function sincronizarFeesML(){
     const feeAmount = opt.sale_fee_amount||0;
     const feePct = precio>0 ? (feeAmount/precio*100) : (opt.sale_fee_details&&opt.sale_fee_details.percentage_fee)||0;
 
-    // 3) Costo de envío real (solo si el vendedor ofrece envío gratis en esa publicación)
-    let shippingCost=0;
-    if(item.shipping && item.shipping.free_shipping){
-      const CP_ORIGEN="1000";
-      const shipRes = await proxyGet("/items/"+encodeURIComponent(p.ml_item_id)+"/shipping_options?zip_code="+CP_ORIGEN);
-      if(shipRes.ok && shipRes.data && Array.isArray(shipRes.data.options) && shipRes.data.options.length){
-        shippingCost = shipRes.data.options[0].list_cost||0;
-      } else {
-        console.warn("Envío no disponible para",p.sku,shipRes.data);
-      }
-    }
-
-    return {sku:p.sku, ml_item_id:p.ml_item_id, feeAmount, feePct, shippingCost, raw:opt, fail:false};
+    return {sku:p.sku, ml_item_id:p.ml_item_id, feeAmount, feePct, shippingCost, raw:{listing_prices:opt, billable_weight:billableWeight, tag_cuotas:tagCuotas||null}, fail:false};
   }
 
   try{
