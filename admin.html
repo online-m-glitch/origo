@@ -2322,10 +2322,20 @@ async function sincronizarFeesML(){
     const qs=new URLSearchParams({price:precio, listing_type_id:item.listing_type_id||"", category_id:item.category_id||""});
     // 2) Consultar el costo real de venta para ese tipo de publicación/categoría/precio
     const feeRes = await proxyGet("/sites/"+site+"/listing_prices?"+qs.toString());
-    if(!feeRes.ok || !Array.isArray(feeRes.data) || !feeRes.data.length){
+    if(!feeRes.ok || !feeRes.data || feeRes.data.error){
       return {sku:p.sku, fail:true, motivo:feeRes.data};
     }
-    const opt = feeRes.data.find(o=>o.listing_type_id===item.listing_type_id) || feeRes.data[0];
+    // La API devuelve un array de opciones si no se filtra por listing_type_id,
+    // o un objeto único si se filtra (como hacemos acá).
+    let opt;
+    if(Array.isArray(feeRes.data)){
+      opt = feeRes.data.find(o=>o.listing_type_id===item.listing_type_id) || feeRes.data[0];
+    } else {
+      opt = feeRes.data;
+    }
+    if(!opt || opt.sale_fee_amount==null){
+      return {sku:p.sku, fail:true, motivo:feeRes.data};
+    }
     const feeAmount = opt.sale_fee_amount||0;
     const feePct = precio>0 ? (feeAmount/precio*100) : (opt.sale_fee_details&&opt.sale_fee_details.percentage_fee)||0;
     return {sku:p.sku, ml_item_id:p.ml_item_id, feeAmount, feePct, raw:opt, fail:false};
