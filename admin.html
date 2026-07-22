@@ -435,6 +435,9 @@ tr:hover td{background:#fafbfc;}
           <div class="card-header">
             <div class="toolbar">
               <input class="search-input" type="text" placeholder="Buscar SKU o nombre…" oninput="filtrarProductos(this.value)">
+              <select id="prodProveedorFiltro" onchange="renderProductos()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                <option value="">Todos los proveedores</option>
+              </select>
               <button class="btn btn-primary admin-only" onclick="abrirModalProducto()">+ Agregar producto</button>
               <button class="btn btn-danger admin-only" id="btnElimSel" onclick="eliminarSeleccionados()" style="display:none;">🗑️ Eliminar seleccionados (<span id="selCount">0</span>)</button>
               <button class="btn btn-ghost" onclick="exportarCSV()" title="Descargar catálogo como CSV">⬇️ Exportar CSV</button>
@@ -465,6 +468,9 @@ tr:hover td{background:#fafbfc;}
           <div class="card-header">
             <div class="toolbar">
               <input class="search-input" type="text" id="stockBuscar" placeholder="Buscar SKU o nombre…" oninput="renderStock()">
+              <select id="stockProveedorFiltro" onchange="renderStock()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                <option value="">Todos los proveedores</option>
+              </select>
               <button class="btn btn-ghost" onclick="exportarStockCSV()">⬇️ Exportar stock CSV</button>
               <label class="btn btn-ghost admin-only" style="cursor:pointer;" title="Importar stock desde CSV">
                 ⬆️ Importar stock CSV / ML
@@ -1806,7 +1812,20 @@ let filtroProd = "";
 function filtrarProductos(q){ filtroProd=q; renderProductos(); }
 
 function renderProductos(){
+  const selProv=document.getElementById("prodProveedorFiltro");
+  const provFiltro=selProv?.value||"";
+  if(selProv){
+    const proveedores=[...new Set(productos.map(p=>p.proveedor).filter(Boolean))].sort();
+    const actual=selProv.value;
+    const opcionesNuevas='<option value="">Todos los proveedores</option>'+proveedores.map(pv=>`<option value="${esc(pv)}">${esc(pv)}</option>`).join("");
+    if(selProv.dataset.opts!==opcionesNuevas){
+      selProv.innerHTML=opcionesNuevas;
+      selProv.dataset.opts=opcionesNuevas;
+      selProv.value=actual;
+    }
+  }
   const lista = productos.filter(p=>{
+    if(provFiltro && p.proveedor!==provFiltro) return false;
     if(!filtroProd) return true;
     const q=filtroProd.toLowerCase();
     return p.sku.toLowerCase().includes(q)||p.nombre.toLowerCase().includes(q)||(p.proveedor||"").toLowerCase().includes(q);
@@ -1996,9 +2015,23 @@ function confirmarElimProd(idx){
 // ================================================================
 function renderStock(){
   const q=(document.getElementById("stockBuscar")?.value||"").toLowerCase().trim();
-  const lista = q ? productos.filter(p=>
-    p.sku.toLowerCase().includes(q) || (p.nombre||"").toLowerCase().includes(q) || (p.proveedor||"").toLowerCase().includes(q)
-  ) : productos;
+  const selProv=document.getElementById("stockProveedorFiltro");
+  const provFiltro=selProv?.value||"";
+  if(selProv){
+    const proveedores=[...new Set(productos.map(p=>p.proveedor).filter(Boolean))].sort();
+    const actual=selProv.value;
+    const opcionesNuevas='<option value="">Todos los proveedores</option>'+proveedores.map(pv=>`<option value="${esc(pv)}">${esc(pv)}</option>`).join("");
+    if(selProv.dataset.opts!==opcionesNuevas){
+      selProv.innerHTML=opcionesNuevas;
+      selProv.dataset.opts=opcionesNuevas;
+      selProv.value=actual;
+    }
+  }
+  const lista = productos.filter(p=>{
+    if(provFiltro && p.proveedor!==provFiltro) return false;
+    if(!q) return true;
+    return p.sku.toLowerCase().includes(q) || (p.nombre||"").toLowerCase().includes(q) || (p.proveedor||"").toLowerCase().includes(q);
+  });
   const rows = lista.map(p=>{
     const dep=calcularStockDeposito(p.sku);
     const full=calcularStockFullML(p.sku);
