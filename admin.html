@@ -1614,7 +1614,7 @@ async function cargarDatos(){
       sbGet("stock_ml","select=sku,cantidad"),
       sbGet("compras","order=created_at.desc"),
       sbGet("ventas","order=created_at.desc&limit=2000"),
-      sbGet("ml_fees","select=sku,fee_amount,fee_pct,shipping_cost"),
+      sbGet("ml_fees","select=sku,fee_amount,fee_pct,shipping_cost,fee_fixed"),
       sbGet("app_config","select=key,value")
     ]);
     productos = prods||[];
@@ -1623,7 +1623,7 @@ async function cargarDatos(){
     stockML = {};
     (sml||[]).forEach(function(r){ stockML[r.sku]=r.cantidad; });
     feesML = {};
-    (mlf||[]).forEach(function(r){ feesML[r.sku]={fee_amount:r.fee_amount, fee_pct:r.fee_pct, shipping_cost:r.shipping_cost||0}; });
+    (mlf||[]).forEach(function(r){ feesML[r.sku]={fee_amount:r.fee_amount, fee_pct:r.fee_pct, shipping_cost:r.shipping_cost||0, fee_fixed:r.fee_fixed||0}; });
     appConfig = {};
     (cfg||[]).forEach(function(r){ appConfig[r.key]=r.value; });
     compras = (comps||[]).map(function(c){
@@ -1665,7 +1665,7 @@ async function sbGuardar(tipo, data){
     if(tipo==="cc")            { await sbInsert("cuenta_corriente", data); }
     if(tipo==="deleteCc")      { await sbDelete("cuenta_corriente","id=eq."+data); }
     if(tipo==="stockml")       { await sbUpsert("stock_ml",{sku:data.sku,cantidad:data.cantidad,updated_at:new Date().toISOString()}); }
-    if(tipo==="mlfee")         { await sbUpsert("ml_fees",{sku:data.sku, ml_item_id:data.ml_item_id, fee_amount:data.fee_amount, fee_pct:data.fee_pct, shipping_cost:data.shipping_cost||0, raw:data.raw, updated_at:new Date().toISOString()}); }
+    if(tipo==="mlfee")         { await sbUpsert("ml_fees",{sku:data.sku, ml_item_id:data.ml_item_id, fee_amount:data.fee_amount, fee_pct:data.fee_pct, shipping_cost:data.shipping_cost||0, fee_fixed:data.fee_fixed||0, raw:data.raw, updated_at:new Date().toISOString()}); }
     if(tipo==="config")        { await sbUpsert("app_config",{key:data.key, value:data.value, updated_at:new Date().toISOString()}); }
     if(tipo==="compra")        { const r=await sbInsert("compras",Object.assign({},data,{lineas:JSON.stringify(data.lineas)})); return r; }
     if(tipo==="deleteCompra")  { await sbDelete("compras","id=eq."+data); }
@@ -2263,6 +2263,8 @@ function calcAnaliML(p){
   const feeReal=feesML[p.sku];
   const comisionReal = feeReal && precio>0;
   const comision = comisionReal ? (feeReal.fee_amount||(precio*(feeReal.fee_pct||0)/100)) : precio*0.10;
+  const comisionFixed = comisionReal ? (feeReal.fee_fixed||0) : 0;
+  const comisionPct = comisionReal ? (comision-comisionFixed) : comision;
   const envio = comisionReal ? (feeReal.shipping_cost||0) : 0; // costo real de envío Full/gratis, solo si está sincronizado
   const impuestoPct = (appConfig.impuesto_pct!=null) ? Number(appConfig.impuesto_pct) : 0; // % estimado, configurable, NO es un dato real por venta
   const impuesto = precio*(impuestoPct/100);
@@ -2273,7 +2275,7 @@ function calcAnaliML(p){
   if(margenPct>=25){ rec="Rentable"; cls="badge-green"; }
   else if(margenPct>=10){ rec="Revisar"; cls="badge-orange"; }
   else { rec="Pérdida"; cls="badge-red"; }
-  return { comision, envio, impuesto, recibis, margen, margenPct, rec, cls, comisionReal };
+  return { comision, comisionFixed, comisionPct, envio, impuesto, recibis, margen, margenPct, rec, cls, comisionReal };
 }
 function renderAnalisis(){
   const inpImp=document.getElementById("impuestoPctInput");
@@ -2290,7 +2292,7 @@ function renderAnalisis(){
       <td style="max-width:180px;">${esc(p.nombre)}</td>
       <td class="num">$${fmt(p.costo)}</td>
       <td class="num">$${fmt(p.precio)}</td>
-      <td class="num" style="color:var(--orange);" title="${a.comisionReal?'Comisión real sincronizada con ML':'Comisión estimada (10%) — sincronizá para tener el dato real'}">$${fmt(a.comision)}${a.comisionReal?' ✓':' *'}</td>
+      <td class="num" style="color:var(--orange);cursor:help;" title="${a.comisionReal?('Cargo por vender: $'+fmt(a.comisionPct)+(a.comisionFixed>0?' + Costo por unidad: $'+fmt(a.comisionFixed):'')):'Comisión estimada (10%) — sincronizá para tener el dato real'}">$${fmt(a.comision)}${a.comisionReal?' ✓':' *'}</td>
       <td class="num" style="color:var(--orange);" title="${a.envio>0?'Costo de envío Full/gratis sincronizado con ML':'Sin datos de envío sincronizados'}">$${fmt(a.envio)}${a.comisionReal?(a.envio>0?' ✓':''):' *'}</td>
       <td class="num" style="color:var(--orange);" title="Estimado configurable, no es un dato real por venta">$${fmt(a.impuesto)} *</td>
       <td class="num" style="font-weight:700;">$${fmt(a.recibis)}</td>
@@ -2386,9 +2388,10 @@ async function sincronizarFeesML(){
       return {sku:p.sku, fail:true, motivo:feeRes.data};
     }
     const feeAmount = opt.sale_fee_amount||0;
+    const feeFixed = (opt.sale_fee_details && opt.sale_fee_details.fixed_fee) ? opt.sale_fee_details.fixed_fee : 0;
     const feePct = precio>0 ? (feeAmount/precio*100) : (opt.sale_fee_details&&opt.sale_fee_details.percentage_fee)||0;
 
-    return {sku:p.sku, ml_item_id:p.ml_item_id, feeAmount, feePct, shippingCost, raw:{listing_prices:opt, billable_weight:billableWeight, tag_cuotas:tagCuotas||null}, fail:false};
+    return {sku:p.sku, ml_item_id:p.ml_item_id, feeAmount, feeFixed, feePct, shippingCost, raw:{listing_prices:opt, billable_weight:billableWeight, tag_cuotas:tagCuotas||null}, fail:false};
   }
 
   try{
@@ -2398,8 +2401,8 @@ async function sincronizarFeesML(){
 
       for(const res of resultados){
         if(res.fail){ fail++; console.warn("Fee no disponible para",res.sku,res.motivo); continue; }
-        feesML[res.sku]={fee_amount:res.feeAmount, fee_pct:res.feePct, shipping_cost:res.shippingCost||0};
-        await sbGuardar("mlfee",{sku:res.sku, ml_item_id:res.ml_item_id, fee_amount:res.feeAmount, fee_pct:res.feePct, shipping_cost:res.shippingCost||0, raw:res.raw}).catch(()=>{});
+        feesML[res.sku]={fee_amount:res.feeAmount, fee_pct:res.feePct, shipping_cost:res.shippingCost||0, fee_fixed:res.feeFixed||0};
+        await sbGuardar("mlfee",{sku:res.sku, ml_item_id:res.ml_item_id, fee_amount:res.feeAmount, fee_pct:res.feePct, shipping_cost:res.shippingCost||0, fee_fixed:res.feeFixed||0, raw:res.raw}).catch(()=>{});
         ok++;
       }
     }
