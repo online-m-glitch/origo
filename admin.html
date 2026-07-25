@@ -4696,7 +4696,7 @@ async function sincronizarStockML(){
 
       for(const body of resultados){
         if(!body) continue;
-        const qty = body.available_quantity||0;
+        let qty = body.available_quantity||0;
         const titulo = (body.title||"").toUpperCase().trim();
 
         // Buscar SKU en attributes (SELLER_SKU es el campo estándar de ML)
@@ -4718,6 +4718,23 @@ async function sincronizarStockML(){
         }
 
         if(!sku){ logML("Sin SKU: "+titulo.substring(0,40)); continue; }
+
+        // Si es Full (fulfillment), el available_quantity del item puede no reflejar el stock
+        // real (descuenta dañados/perdidos/en trámite de retiro). Consultamos el stock real
+        // del inventario de Full para tener el número exacto.
+        if(body.shipping && body.shipping.logistic_type==="fulfillment" && body.inventory_id){
+          try{
+            const invBody = await fetch(SB_URL+"/functions/v1/ml-oauth", {
+              method:"POST",
+              headers:{"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY},
+              body:JSON.stringify({grant_type:"proxy", path:"/inventories/"+body.inventory_id+"/stock/fulfillment", access_token:mlToken})
+            }).then(r=>r.json());
+            if(invBody && invBody.available_quantity!=null){
+              qty = invBody.available_quantity;
+            }
+          }catch(e){ /* si falla la consulta de inventario, seguimos con available_quantity del item */ }
+        }
+
         stockML[sku]=qty;
         promises.push(sbGuardar("stockml",{sku,cantidad:qty}).catch(()=>{}));
         actualizados++;
