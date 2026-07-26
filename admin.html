@@ -4680,6 +4680,7 @@ async function sincronizarStockML(){
 
     let actualizados=0;
     const promises=[];
+    const skusConfiables=new Set(); // SKUs ya confirmados por SELLER_SKU explícito en esta sincronización
 
     // Traer detalles individuales de a 10 en paralelo
     logML("Iniciando fetch de "+itemIds.length+" items...");
@@ -4701,12 +4702,13 @@ async function sincronizarStockML(){
 
         // Buscar SKU en attributes (SELLER_SKU es el campo estándar de ML)
         let sku = (body.seller_sku||body.seller_custom_field||"").toUpperCase().trim();
+        let skuConfiable = !!sku;
         if(!sku && body.attributes){
           const skuAttr = body.attributes.find(a=>a.id==="SELLER_SKU"||a.id==="SKU");
-          if(skuAttr) sku = (skuAttr.value_name||"").toUpperCase().trim();
+          if(skuAttr){ sku = (skuAttr.value_name||"").toUpperCase().trim(); skuConfiable = !!sku; }
         }
 
-        // Fallback: buscar por título
+        // Fallback: buscar por título (match aproximado, NO confiable — puede pisar mal otro SKU)
         if(!sku && titulo){
           const prod = productos.find(p=>{
             const skuUp = (p.sku||"").toUpperCase();
@@ -4719,6 +4721,13 @@ async function sincronizarStockML(){
 
         if(!sku){ logML("Sin SKU: "+titulo.substring(0,40)); continue; }
 
+        // Si este SKU ya fue confirmado por SELLER_SKU explícito en esta misma sincronización,
+        // un match por título (no confiable) no debe pisarlo — son publicaciones distintas.
+        if(!skuConfiable && skusConfiables.has(sku)){
+          logML("⏭️ Ignorado match por título de \""+titulo.substring(0,40)+"\" → "+sku+" (ese SKU ya está confirmado por otra publicación)");
+          continue;
+        }
+
         // Si es Full (fulfillment), el available_quantity del item puede no reflejar el stock
         // real (descuenta dañados/perdidos/en trámite de retiro). Consultamos el stock real
         // del inventario de Full para tener el número exacto.
@@ -4730,19 +4739,17 @@ async function sincronizarStockML(){
               headers:{"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY},
               body:JSON.stringify({grant_type:"proxy", path:"/inventories/"+body.inventory_id+"/stock/fulfillment", access_token:mlToken})
             }).then(r=>r.json());
-            logML("🔎 "+sku+" inventory("+body.inventory_id+"): "+JSON.stringify(invBody));
             if(invBody && invBody.available_quantity!=null){
               qty = invBody.available_quantity;
             }
           }catch(e){ logML("⚠️ Error consultando inventario Full de "+sku+": "+e.message); }
-        } else if(sku==="FD44" || sku==="E00120JP"){
-          logML("ℹ️ "+sku+" logistic_type=\""+logType+"\" inventory_id="+(body.inventory_id||"(ninguno)")+" — no se consultó stock Full real");
         }
 
+        if(skuConfiable) skusConfiables.add(sku);
         stockML[sku]=qty;
         promises.push(sbGuardar("stockml",{sku,cantidad:qty}).catch(()=>{}));
         actualizados++;
-        logML("✅ "+sku+": "+qty+" uds");
+        logML("✅ "+sku+": "+qty+" uds"+(skuConfiable?"":" (por título)"));
       }
     }
 
