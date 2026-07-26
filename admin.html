@@ -4722,17 +4722,21 @@ async function sincronizarStockML(){
         // Si es Full (fulfillment), el available_quantity del item puede no reflejar el stock
         // real (descuenta dañados/perdidos/en trámite de retiro). Consultamos el stock real
         // del inventario de Full para tener el número exacto.
-        if(body.shipping && body.shipping.logistic_type==="fulfillment" && body.inventory_id){
+        const logType = body.shipping&&body.shipping.logistic_type;
+        if(logType==="fulfillment" && body.inventory_id){
           try{
             const invBody = await fetch(SB_URL+"/functions/v1/ml-oauth", {
               method:"POST",
               headers:{"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY},
               body:JSON.stringify({grant_type:"proxy", path:"/inventories/"+body.inventory_id+"/stock/fulfillment", access_token:mlToken})
             }).then(r=>r.json());
+            logML("🔎 "+sku+" inventory("+body.inventory_id+"): "+JSON.stringify(invBody));
             if(invBody && invBody.available_quantity!=null){
               qty = invBody.available_quantity;
             }
-          }catch(e){ /* si falla la consulta de inventario, seguimos con available_quantity del item */ }
+          }catch(e){ logML("⚠️ Error consultando inventario Full de "+sku+": "+e.message); }
+        } else if(sku==="FD44" || sku==="E00120JP"){
+          logML("ℹ️ "+sku+" logistic_type=\""+logType+"\" inventory_id="+(body.inventory_id||"(ninguno)")+" — no se consultó stock Full real");
         }
 
         stockML[sku]=qty;
