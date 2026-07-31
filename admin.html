@@ -4732,17 +4732,23 @@ async function sincronizarStockML(){
         // real (descuenta dañados/perdidos/en trámite de retiro). Consultamos el stock real
         // del inventario de Full para tener el número exacto.
         const logType = body.shipping&&body.shipping.logistic_type;
+        logML("  → "+sku+" logistic: "+(logType||"normal")+" | item_qty: "+qty+(body.inventory_id?" | inv: "+body.inventory_id:""));
         if(logType==="fulfillment" && body.inventory_id){
           try{
-            const invBody = await fetch(SB_URL+"/functions/v1/ml-oauth", {
+            const invR = await fetch(SB_URL+"/functions/v1/ml-oauth", {
               method:"POST",
               headers:{"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY},
               body:JSON.stringify({grant_type:"proxy", path:"/inventories/"+body.inventory_id+"/stock/fulfillment", access_token:mlToken})
-            }).then(r=>r.json());
+            });
+            const invBody = await invR.json();
+            logML("  → inv response: "+JSON.stringify(invBody).substring(0,100));
             if(invBody && invBody.available_quantity!=null){
               qty = invBody.available_quantity;
+              logML("  → qty actualizado a "+qty+" (desde inventario Full)");
+            } else {
+              logML("  → usando qty del item: "+qty);
             }
-          }catch(e){ logML("⚠️ Error consultando inventario Full de "+sku+": "+e.message); }
+          }catch(e){ logML("⚠️ Error inventario Full "+sku+": "+e.message); }
         }
 
         if(skuConfiable) skusConfiables.add(sku);
