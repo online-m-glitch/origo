@@ -1382,8 +1382,9 @@ tr:hover td{background:#fafbfc;}
         </div>
         <button type="button" class="btn btn-ghost" style="white-space:nowrap;" onclick="agregarComponenteCombo()">+ Agregar</button>
       </div>
-      <div style="margin-top:10px;">
-        <button type="button" class="btn btn-ghost" style="font-size:11px;" onclick="calcularCostoDesdeComponentes()">🧮 Calcular costo sumando componentes</button>
+      <div style="font-size:11px;color:var(--text-soft);margin-top:6px;">💲 El costo del combo se calcula solo, sumando costo x cantidad de cada componente.</div>
+      <div style="margin-top:6px;">
+        <button type="button" class="btn btn-ghost" style="font-size:11px;" onclick="calcularCostoDesdeComponentes(true)">🔄 Recalcular costo (si cambiaron los costos de los componentes)</button>
       </div>
     </div>
 
@@ -2118,6 +2119,12 @@ function renderProductos(){
 function toggleComboWrap(){
   const esCombo = document.getElementById("pTipo").value==="combo";
   document.getElementById("comboWrap").style.display = esCombo?"block":"none";
+  const pCostoEl=document.getElementById("pCosto");
+  pCostoEl.readOnly = esCombo;
+  pCostoEl.style.background = esCombo?"#f8f9fa":"";
+  pCostoEl.style.color = esCombo?"#666":"";
+  pCostoEl.title = esCombo?"El costo de un combo se calcula automáticamente sumando sus componentes.":"";
+  if(esCombo) calcularCostoDesdeComponentes(false);
 }
 function renderComboComponentes(){
   const cont=document.getElementById("comboCompList");
@@ -2152,21 +2159,22 @@ function agregarComponenteCombo(){
   document.getElementById("comboCompSku").value="";
   document.getElementById("comboCompCantidad").value="1";
   renderComboComponentes();
+  calcularCostoDesdeComponentes(false);
 }
 function quitarComponenteCombo(i){
   comboComponentesEditor.splice(i,1);
   renderComboComponentes();
+  calcularCostoDesdeComponentes(false);
 }
-function calcularCostoDesdeComponentes(){
-  if(!comboComponentesEditor.length){ toast("Agregá componentes primero.","err"); return; }
+function calcularCostoDesdeComponentes(mostrarToast){
   let total=0, faltantes=0;
   for(const c of comboComponentesEditor){
     const p=productos.find(x=>x.sku.toUpperCase()===c.sku.toUpperCase());
-    if(p) total += (p.costo||0)*c.cantidad; else faltantes++;
+    if(p) total += (p.costo||0)*(Number(c.cantidad)||1); else faltantes++;
   }
   document.getElementById("pCosto").value = total.toFixed(2);
   calcMargenModal();
-  toast(faltantes?`Costo calculado (⚠️ ${faltantes} componente(s) sin encontrar).`:"Costo actualizado desde componentes ✅","ok");
+  if(mostrarToast) toast(faltantes?`Costo recalculado (⚠️ ${faltantes} componente(s) sin encontrar).`:"Costo recalculado desde componentes ✅","ok");
 }
 function abrirModalProducto(){
   editandoProdIdx=-1;
