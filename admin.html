@@ -356,6 +356,9 @@ tr:hover td{background:#fafbfc;}
     <div class="nav-item" onclick="mostrarSeccion('compras')">
       <span class="icon">🧾</span> Compras
     </div>
+    <div class="nav-item" onclick="mostrarSeccion('pedidosprov')">
+      <span class="icon">📋</span> Pedidos a Prov.
+    </div>
     <div class="nav-item" onclick="mostrarSeccion('ventas')">
       <span class="icon">💸</span> Ventas
     </div>
@@ -495,6 +498,7 @@ tr:hover td{background:#fafbfc;}
     <div id="sec-alertas" class="section">
       <div class="page-header">
         <div><h2>Alertas de Stock</h2><div class="sub">Productos bajo mínimo o sin stock</div></div>
+        <button class="btn btn-primary admin-only" onclick="generarPedidoReposicion()">📋 Generar pedido de reposición</button>
       </div>
       <div style="padding:24px;">
         <div class="card">
@@ -1209,6 +1213,41 @@ tr:hover td{background:#fafbfc;}
       </div>
     </div>
 
+
+    <!-- ========== PEDIDOS A PROVEEDORES ========== -->
+    <div id="sec-pedidosprov" class="section">
+      <div class="page-header">
+        <div><h2>Pedidos a Proveedores</h2><div class="sub">Órdenes de compra a proveedores</div></div>
+        <button class="btn btn-primary admin-only" onclick="generarPedidoReposicion()">📋 Generar pedido de reposición</button>
+      </div>
+      <div style="padding:24px;">
+        <div class="stats-grid" id="ppStats" style="margin-bottom:20px;"></div>
+        <div class="card">
+          <div class="card-header">
+            <h3>Listado de pedidos</h3>
+            <div class="toolbar">
+              <input class="search-input" type="text" id="ppBuscar" placeholder="Buscar proveedor…" oninput="renderPedidosProv()">
+              <select id="ppFiltroEstado" onchange="renderPedidosProv()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                <option value="">Todos los estados</option>
+                <option value="borrador">📝 Borrador</option>
+                <option value="aprobado">✅ Aprobado</option>
+                <option value="enviado">📤 Enviado</option>
+                <option value="recibido">📦 Recibido</option>
+                <option value="cancelado">❌ Cancelado</option>
+              </select>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Fecha</th><th>Proveedor</th><th>Productos</th><th>Total est. ($)</th><th>Estado</th><th>Observaciones</th><th>Acciones</th></tr></thead>
+              <tbody id="ppBody"></tbody>
+            </table>
+            <div class="empty" id="ppEmpty" style="display:none;"><div class="icon">📋</div><p>Sin pedidos a proveedores. Generá uno desde Alertas de Stock.</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div><!-- /main-content -->
 </div><!-- /adminPanel -->
 
@@ -1443,6 +1482,82 @@ tr:hover td{background:#fafbfc;}
   </div>
 </div>
 
+
+<!-- Modal editar pedido proveedor -->
+<div class="overlay" id="modalPedidoProv">
+  <div class="modal" style="max-width:750px;max-height:90vh;overflow-y:auto;">
+    <h3 id="ppModalTitle">📋 Pedido a Proveedor</h3>
+    <div class="form-grid cols3" style="margin-bottom:14px;">
+      <div class="form-group">
+        <label>Proveedor</label>
+        <input type="text" id="ppProveedor" style="font-weight:700;">
+      </div>
+      <div class="form-group">
+        <label>Fecha</label>
+        <input type="date" id="ppFecha">
+      </div>
+      <div class="form-group">
+        <label>Observaciones</label>
+        <input type="text" id="ppObs" placeholder="Opcional">
+      </div>
+    </div>
+
+    <div style="font-size:13px;font-weight:700;color:#0d2259;margin-bottom:8px;">Líneas del pedido</div>
+    <div class="table-wrap" style="margin-bottom:12px;border:1.5px solid var(--border);border-radius:8px;">
+      <table>
+        <thead><tr><th>SKU</th><th>Producto</th><th>Stock actual</th><th>Mín.</th><th>Cantidad a pedir</th><th>Costo unit. ($)</th><th>Subtotal</th><th></th></tr></thead>
+        <tbody id="ppLineasBody"></tbody>
+      </table>
+    </div>
+
+    <div style="font-size:12px;font-weight:700;color:var(--text-soft);margin-bottom:6px;">+ Agregar producto</div>
+    <div style="display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;align-items:end;margin-bottom:14px;">
+      <div class="form-group" style="margin:0;">
+        <input type="text" id="ppLinSku" list="skuList" placeholder="SKU" autocomplete="off" oninput="autocompletarPPSku(this.value)">
+      </div>
+      <div class="form-group" style="margin:0;">
+        <input type="number" id="ppLinCant" placeholder="Cantidad" min="1">
+      </div>
+      <div class="form-group" style="margin:0;">
+        <input type="number" id="ppLinCosto" placeholder="Costo ($)">
+      </div>
+      <button class="btn btn-primary" style="height:38px;" onclick="agregarLineaPP()">+ Agregar</button>
+    </div>
+    <div id="ppLinSkuNombre" style="font-size:11px;color:var(--text-soft);margin-bottom:12px;min-height:14px;"></div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:#f0f4ff;border-radius:8px;margin-bottom:16px;">
+      <span style="font-weight:700;color:#0d2259;">Total estimado: <span id="ppTotalDisplay" style="color:var(--ml-blue);font-size:16px;">$0</span></span>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="cerrarModalPP()">Cancelar</button>
+      <button class="btn btn-ghost" id="btnPPBorrador" onclick="guardarPedidoProv('borrador')">💾 Guardar borrador</button>
+      <button class="btn btn-success" id="btnPPAprobar" onclick="guardarPedidoProv('aprobado')">✅ Aprobar pedido</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal enviar pedido proveedor -->
+<div class="overlay" id="modalEnviarPP">
+  <div class="modal" style="max-width:480px;">
+    <h3>📤 Enviar pedido al proveedor</h3>
+    <div id="enviarPPResumen" style="background:#f0f4ff;border-radius:8px;padding:12px;margin-bottom:16px;font-size:13px;"></div>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label>📱 Teléfono WhatsApp del proveedor</label>
+      <input type="text" id="ppWANum" placeholder="Ej: 5491112345678 (con código de país)">
+    </div>
+    <div class="form-group" style="margin-bottom:16px;">
+      <label>📧 Email del proveedor</label>
+      <input type="email" id="ppEmail" placeholder="proveedor@ejemplo.com">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="document.getElementById('modalEnviarPP').classList.remove('show')">Cancelar</button>
+      <button class="btn btn-success" onclick="enviarPPWhatsApp()">📱 WhatsApp</button>
+      <button class="btn btn-primary" onclick="enviarPPEmail()">📧 Email</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal confirmar -->
 <div class="overlay" id="modalConfirm">
   <div class="modal modal-sm">
@@ -1532,6 +1647,7 @@ let compras = [];
 let lineasCompra = []; // líneas del remito en edición
 let ventas = [];
 let pedidos = [];
+let pedidosProv = [];
 
 // ================================================================
 // LOGIN / LOGOUT
@@ -1644,6 +1760,11 @@ async function cargarDatos(){
       return Object.assign({},c,{lineas: typeof c.lineas==="string"?JSON.parse(c.lineas):(c.lineas||[])});
     });
     ventas = vents||[];
+    // Pedidos a proveedores
+    try{
+      const pp = await sbGet("pedidos_prov","order=created_at.desc&limit=200");
+      pedidosProv = (pp||[]).map(p=>Object.assign({},p,{lineas:typeof p.lineas==="string"?JSON.parse(p.lineas):(p.lineas||[])}));
+    }catch(e){ pedidosProv=[]; }
     // Pedidos se cargan aparte
     try{
       const peds = await sbGet("pedidos","order=created_at.desc&limit=500");
@@ -2811,6 +2932,7 @@ async function mostrarSeccion(id){
   if(id==="compras"){ renderCompras(); actualizarSkuListCompras(); }
   if(id==="ventas"){ renderVentas(); renderVentasML(); renderVentasTienda(); }
   if(id==="pedidos"){ renderPedidos(); }
+  if(id==="pedidosprov"){ renderPedidosProv(); }
   if(id==="ml"){ verificarTokenML(); }
   if(id==="analisis") renderAnalisis();
 }
@@ -3731,7 +3853,7 @@ function resetTotal(){
         mostrarCargando(true);
         try{ await sbGuardar("reset",null); }catch(e){ toast("Error al resetear: "+e.message,"err"); mostrarCargando(false); return; }
         productos=[]; movimientos=[]; cuentaCorriente=[];
-        stockML={}; compras=[]; ventas=[]; pedidos=[]; lineasCompra=[]; mlLineasPreview=[];
+        stockML={}; compras=[]; ventas=[]; pedidos=[]; pedidosProv=[]; lineasCompra=[]; mlLineasPreview=[];
         actualizarProvLists(); actualizarSkuList(); actualizarSkuListCompras();
         renderPanel(); renderProductos(); renderStock(); renderAlertas();
         renderMovimientos(); renderCC(); renderCompras(); renderVentas(); renderAnalisis();
@@ -4912,6 +5034,450 @@ function renderVentasML(){
     <td class="num num-pos">$${fmt(v.totalNeto||v.ingresoBruto||v.precio*v.cantidad)}</td>
     <td style="font-size:11px;color:var(--text-soft);">${esc(v.nroVenta||"")}</td>
   </tr>`).join("");
+}
+
+
+// ================================================================
+// PEDIDOS A PROVEEDORES
+// ================================================================
+let ppId = null;       // ID del pedido en edición (null = nuevo)
+let ppLineas = [];     // líneas del pedido en edición
+
+// ── Render lista ──
+function renderPedidosProv(){
+  const filtroEstado = document.getElementById("ppFiltroEstado")?.value||"";
+  const buscar = (document.getElementById("ppBuscar")?.value||"").toLowerCase().trim();
+
+  const lista = pedidosProv.filter(p=>{
+    if(filtroEstado && p.estado!==filtroEstado) return false;
+    if(buscar && !(p.proveedor||"").toLowerCase().includes(buscar)) return false;
+    return true;
+  });
+
+  // Stats
+  const borradores = pedidosProv.filter(p=>p.estado==="borrador").length;
+  const aprobados  = pedidosProv.filter(p=>p.estado==="aprobado").length;
+  const enviados   = pedidosProv.filter(p=>p.estado==="enviado").length;
+  const statsEl = document.getElementById("ppStats");
+  if(statsEl) statsEl.innerHTML =
+    `<div class="stat-card"><div class="label">Borradores</div><div class="value orange">${borradores}</div></div>
+     <div class="stat-card"><div class="label">Aprobados</div><div class="value blue">${aprobados}</div></div>
+     <div class="stat-card"><div class="label">Enviados</div><div class="value">${enviados}</div></div>
+     <div class="stat-card"><div class="label">Total pedidos</div><div class="value">${pedidosProv.length}</div></div>`;
+
+  const tbody = document.getElementById("ppBody");
+  const empty = document.getElementById("ppEmpty");
+  if(!lista.length){ if(tbody) tbody.innerHTML=""; if(empty) empty.style.display="block"; return; }
+  if(empty) empty.style.display="none";
+
+  const estadoBadge = {
+    borrador:"badge-gray", aprobado:"badge-blue",
+    enviado:"badge-orange", recibido:"badge-green", cancelado:"badge-red"
+  };
+  const estadoIcon = {
+    borrador:"📝", aprobado:"✅", enviado:"📤", recibido:"📦", cancelado:"❌"
+  };
+
+  if(tbody) tbody.innerHTML = lista.map(p=>{
+    const lineas = p.lineas||[];
+    const resumen = lineas.map(l=>esc(l.sku)+" x"+l.cantidad).join(", ");
+    const cls = estadoBadge[p.estado]||"badge-gray";
+    const icon = estadoIcon[p.estado]||"";
+    return `<tr>
+      <td style="white-space:nowrap;">${p.fecha||""}</td>
+      <td><strong>${esc(p.proveedor||"")}</strong></td>
+      <td style="max-width:200px;font-size:12px;color:var(--text-soft);" title="${esc(resumen)}">${esc(resumen.length>60?resumen.slice(0,60)+"…":resumen)}</td>
+      <td class="num" style="font-weight:700;">$${fmt(p.total||0)}</td>
+      <td><span class="badge ${cls}">${icon} ${p.estado}</span></td>
+      <td style="font-size:12px;color:var(--text-soft);">${esc(p.obs||"")}</td>
+      <td>
+        <div class="btn-group">
+          ${p.estado!=="recibido"&&p.estado!=="cancelado"?`<button class="btn btn-ghost btn-sm admin-only" onclick="editarPedidoProv(${p.id})" title="Editar">✏️</button>`:""}
+          ${p.estado==="aprobado"||p.estado==="borrador"?`<button class="btn btn-success btn-sm admin-only" onclick="abrirEnviarPP(${p.id})" title="Enviar al proveedor">📤</button>`:""}
+          ${p.estado==="enviado"?`<button class="btn btn-primary btn-sm admin-only" onclick="marcarRecibidoPP(${p.id})" title="Marcar como recibido">📦 Recibido</button>`:""}
+          ${p.estado==="borrador"?`<button class="btn btn-danger btn-sm admin-only" onclick="cancelarPedidoProv(${p.id})" title="Cancelar">✕</button>`:""}
+        </div>
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+// ── Generar pedido de reposición desde Alertas ──
+function generarPedidoReposicion(){
+  if(checkViewer("Generar pedidos")) return;
+
+  // Agrupar productos bajo mínimo por proveedor
+  const porProveedor = {};
+  for(const p of productos){
+    const dep = calcularStockDeposito(p.sku);
+    const full = calcularStockFullML(p.sku);
+    const total = dep + full;
+    const min = p.stockMin||0;
+    if(total < min){
+      const prov = (p.proveedor||"SIN PROVEEDOR").toUpperCase();
+      if(!porProveedor[prov]) porProveedor[prov] = [];
+      porProveedor[prov].push({
+        sku: p.sku,
+        nombre: p.nombre,
+        cantActual: total,
+        cantMin: min,
+        cantPedir: min - total,
+        costo: p.costo||0
+      });
+    }
+  }
+
+  if(!Object.keys(porProveedor).length){
+    toast("✅ No hay productos bajo el mínimo. ¡Todo el stock está OK!","ok");
+    return;
+  }
+
+  // Si hay varios proveedores, preguntar cuál
+  const provs = Object.keys(porProveedor);
+  if(provs.length === 1){
+    abrirNuevoPedidoProv(provs[0], porProveedor[provs[0]]);
+  } else {
+    // Mostrar selector de proveedor
+    confirmCb = null;
+    document.getElementById("confirmBtn").style.display="none";
+    document.getElementById("confirmMsg").innerHTML =
+      `<strong>Seleccioná el proveedor para generar el pedido:</strong><br><br>`+
+      provs.map(pv=>`
+        <button class="btn btn-primary" style="margin:4px;width:100%;" onclick="
+          cerrarConfirm();
+          document.getElementById('confirmBtn').style.display='';
+          abrirNuevoPedidoProv('${esc(pv)}', ${JSON.stringify(porProveedor[pv]).replace(/'/g,"&#39;")});
+        ">${esc(pv)} (${porProveedor[pv].length} producto${porProveedor[pv].length!==1?"s":""})</button>
+      `).join("")+
+      `<br><button class="btn btn-ghost" style="margin:4px;width:100%;" onclick="
+        cerrarConfirm();
+        document.getElementById('confirmBtn').style.display='';
+        generarTodosPedidosProv(${JSON.stringify(porProveedor).replace(/'/g,"&#39;")});
+      ">📋 Generar uno por cada proveedor</button>`;
+    document.getElementById("modalConfirm").classList.add("show");
+  }
+}
+
+async function generarTodosPedidosProv(porProveedor){
+  if(checkViewer("Generar pedidos")) return;
+  mostrarCargando(true);
+  for(const [prov, lineas] of Object.entries(porProveedor)){
+    await crearBorradorPP(prov, lineas);
+  }
+  mostrarCargando(false);
+  renderPedidosProv();
+  toast("Pedidos generados: "+Object.keys(porProveedor).length+" proveedor(es) ✅","ok",4000);
+  mostrarSeccionDirecta("pedidosprov");
+}
+
+function mostrarSeccionDirecta(id){
+  document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));
+  document.querySelectorAll(".nav-item").forEach(n=>n.classList.remove("active"));
+  document.getElementById("sec-"+id).classList.add("active");
+  document.querySelectorAll(".nav-item").forEach(n=>{
+    if(n.textContent.toLowerCase().includes("pedidos a prov")) n.classList.add("active");
+  });
+}
+
+async function crearBorradorPP(proveedor, lineas){
+  const fecha = new Date().toISOString().split("T")[0];
+  const total = lineas.reduce((a,l)=>a+l.cantPedir*l.costo,0);
+  const pp = {
+    fecha, proveedor,
+    estado:"borrador",
+    obs: "Generado automáticamente desde Alertas",
+    lineas: lineas.map(l=>({sku:l.sku,nombre:l.nombre,cantidad:l.cantPedir,costo:l.costo})),
+    total
+  };
+  try{
+    const saved = await sbInsert("pedidos_prov", Object.assign({},pp,{lineas:JSON.stringify(pp.lineas)}));
+    pedidosProv.unshift(Object.assign({},pp,{id:saved?.id||Date.now()}));
+  }catch(e){ toast("Error creando pedido: "+e.message,"err"); }
+}
+
+function abrirNuevoPedidoProv(proveedor, lineasSugeridas){
+  ppId = null;
+  ppLineas = lineasSugeridas.map(l=>({sku:l.sku, nombre:l.nombre, cantidad:l.cantPedir, costo:l.costo}));
+  document.getElementById("ppProveedor").value = proveedor;
+  document.getElementById("ppFecha").value = new Date().toISOString().split("T")[0];
+  document.getElementById("ppObs").value = "Reposición de stock";
+  document.getElementById("ppLinSku").value = "";
+  document.getElementById("ppLinCant").value = "";
+  document.getElementById("ppLinCosto").value = "";
+  document.getElementById("ppLinSkuNombre").textContent = "";
+  document.getElementById("ppModalTitle").textContent = "📋 Nuevo pedido — "+proveedor;
+  renderLineasPP();
+  document.getElementById("modalPedidoProv").classList.add("show");
+}
+
+function editarPedidoProv(id){
+  if(checkViewer("Editar pedidos")) return;
+  const p = pedidosProv.find(x=>x.id===id); if(!p) return;
+  ppId = id;
+  ppLineas = JSON.parse(JSON.stringify(p.lineas||[]));
+  document.getElementById("ppProveedor").value = p.proveedor||"";
+  document.getElementById("ppFecha").value = p.fecha||"";
+  document.getElementById("ppObs").value = p.obs||"";
+  document.getElementById("ppLinSku").value = "";
+  document.getElementById("ppLinCant").value = "";
+  document.getElementById("ppLinCosto").value = "";
+  document.getElementById("ppLinSkuNombre").textContent = "";
+  document.getElementById("ppModalTitle").textContent = "✏️ Editar pedido — "+p.proveedor;
+  renderLineasPP();
+  document.getElementById("modalPedidoProv").classList.add("show");
+}
+
+function cerrarModalPP(){
+  document.getElementById("modalPedidoProv").classList.remove("show");
+  ppId = null; ppLineas = [];
+}
+document.getElementById("modalPedidoProv")?.addEventListener("click", e=>{ if(e.target===e.currentTarget) cerrarModalPP(); });
+
+function autocompletarPPSku(val){
+  const p = productos.find(x=>x.sku.toUpperCase()===val.toUpperCase().trim());
+  const el = document.getElementById("ppLinSkuNombre");
+  if(el) el.textContent = p ? p.nombre+" · Costo: $"+fmt(p.costo) : "";
+  if(p){
+    const costoEl = document.getElementById("ppLinCosto");
+    if(costoEl && !costoEl.value) costoEl.value = p.costo||"";
+  }
+}
+
+function agregarLineaPP(){
+  const sku = document.getElementById("ppLinSku").value.trim().toUpperCase();
+  const cant = parseInt(document.getElementById("ppLinCant").value)||0;
+  const costo = parseFloat(document.getElementById("ppLinCosto").value)||0;
+  if(!sku){ toast("Ingresá un SKU.","err"); return; }
+  if(!cant){ toast("Ingresá la cantidad.","err"); return; }
+  const p = productos.find(x=>x.sku.toUpperCase()===sku);
+  const existing = ppLineas.find(l=>l.sku.toUpperCase()===sku);
+  if(existing){ existing.cantidad += cant; }
+  else { ppLineas.push({sku, nombre:p?p.nombre:"", cantidad:cant, costo:costo||(p?p.costo:0)}); }
+  document.getElementById("ppLinSku").value = "";
+  document.getElementById("ppLinCant").value = "";
+  document.getElementById("ppLinCosto").value = "";
+  document.getElementById("ppLinSkuNombre").textContent = "";
+  renderLineasPP();
+}
+
+function cambiarCantPP(i, val){
+  const v = parseInt(val)||0;
+  if(v<=0) ppLineas.splice(i,1);
+  else ppLineas[i].cantidad = v;
+  renderLineasPP();
+}
+
+function eliminarLineaPP(i){
+  ppLineas.splice(i,1);
+  renderLineasPP();
+}
+
+function renderLineasPP(){
+  const total = ppLineas.reduce((a,l)=>a+(l.costo||0)*(l.cantidad||0),0);
+  const el = document.getElementById("ppTotalDisplay");
+  if(el) el.textContent = "$"+fmt(total);
+
+  const tbody = document.getElementById("ppLineasBody");
+  if(!tbody) return;
+  if(!ppLineas.length){
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:16px;color:var(--text-soft);">Sin productos. Agregá uno arriba.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = ppLineas.map((l,i)=>{
+    const dep = calcularStockDeposito(l.sku);
+    const full = calcularStockFullML(l.sku);
+    const prod = productos.find(p=>p.sku.toUpperCase()===l.sku.toUpperCase());
+    return `<tr>
+      <td><span class="sku-tag">${esc(l.sku)}</span></td>
+      <td style="max-width:150px;font-size:12px;">${esc(l.nombre||"")}</td>
+      <td class="num" style="color:${(dep+full)<=0?"var(--red)":""};">${dep+full}</td>
+      <td class="num">${prod?prod.stockMin||0:"-"}</td>
+      <td><input type="number" value="${l.cantidad}" min="1" style="width:70px;padding:4px;border:1px solid var(--border);border-radius:5px;font-size:12px;" onchange="cambiarCantPP(${i},this.value)"></td>
+      <td class="num">$${fmt(l.costo)}</td>
+      <td class="num" style="font-weight:700;">$${fmt((l.costo||0)*(l.cantidad||0))}</td>
+      <td><button class="btn btn-danger btn-sm" onclick="eliminarLineaPP(${i})">✕</button></td>
+    </tr>`;
+  }).join("");
+}
+
+async function guardarPedidoProv(estado){
+  if(checkViewer("Guardar pedidos")) return;
+  if(!ppLineas.length){ toast("Agregá al menos un producto.","err"); return; }
+  const proveedor = document.getElementById("ppProveedor").value.trim().toUpperCase();
+  const fecha = document.getElementById("ppFecha").value;
+  const obs = document.getElementById("ppObs").value.trim();
+  if(!proveedor){ toast("Ingresá el proveedor.","err"); return; }
+  if(!fecha){ toast("Ingresá la fecha.","err"); return; }
+
+  const total = ppLineas.reduce((a,l)=>a+(l.costo||0)*(l.cantidad||0),0);
+  const data = {proveedor, fecha, obs, estado, lineas:ppLineas, total};
+
+  mostrarCargando(true);
+  try{
+    if(ppId){
+      // Actualizar existente
+      await fetch("https://piqkwewxbjumyqwtmnxn.supabase.co/rest/v1/pedidos_prov?id=eq."+ppId, {
+        method:"PATCH",
+        headers:{"apikey":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I","Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I","Content-Type":"application/json","Prefer":"return=minimal"},
+        body:JSON.stringify({proveedor,fecha,obs,estado,lineas:JSON.stringify(ppLineas),total})
+      });
+      const idx = pedidosProv.findIndex(p=>p.id===ppId);
+      if(idx>=0) pedidosProv[idx] = Object.assign({},pedidosProv[idx],data,{id:ppId});
+    } else {
+      // Nuevo
+      const saved = await sbInsert("pedidos_prov", Object.assign({},data,{lineas:JSON.stringify(ppLineas)}));
+      pedidosProv.unshift(Object.assign({},data,{id:saved?.id||Date.now()}));
+    }
+    cerrarModalPP();
+    renderPedidosProv();
+    toast("Pedido "+(estado==="aprobado"?"aprobado ✅":"guardado como borrador"),"ok",3000);
+    if(estado==="aprobado") setTimeout(()=>abrirEnviarPP(ppId||pedidosProv[0].id),500);
+  }catch(e){ toast("Error: "+e.message,"err"); }
+  mostrarCargando(false);
+}
+
+function abrirEnviarPP(id){
+  const p = pedidosProv.find(x=>x.id===id); if(!p) return;
+  ppId = id;
+  const lineas = p.lineas||[];
+  document.getElementById("enviarPPResumen").innerHTML =
+    `<strong>${esc(p.proveedor)}</strong> · ${lineas.length} producto${lineas.length!==1?"s":""} · Total: <strong>$${fmt(p.total)}</strong><br>`+
+    `<span style="font-size:11px;color:var(--text-soft);">`+lineas.map(l=>esc(l.sku)+" x"+l.cantidad).join(" · ")+`</span>`;
+  document.getElementById("ppWANum").value = "";
+  document.getElementById("ppEmail").value = "";
+  document.getElementById("modalEnviarPP").classList.add("show");
+}
+
+function generarMensajePP(){
+  const p = pedidosProv.find(x=>x.id===ppId); if(!p) return "";
+  const lineas = p.lineas||[];
+  let msg = "Hola! Les paso el pedido de reposición:\n\n";
+  msg += "📋 *PEDIDO DE COMPRA*\n";
+  msg += "Fecha: "+p.fecha+"\n";
+  if(p.obs) msg += "Obs: "+p.obs+"\n";
+  msg += "\n*Productos:*\n";
+  for(const l of lineas){
+    msg += "• "+l.sku+" - "+l.nombre+" x"+l.cantidad+" u.";
+    if(l.costo) msg += " ($"+fmt(l.costo)+" c/u)";
+    msg += "\n";
+  }
+  msg += "\n*Total estimado: $"+fmt(p.total)+"*\n";
+  msg += "\nQuedo a disposición para coordinar la entrega. Gracias!";
+  return msg;
+}
+
+async function marcarEnviadoPP(id){
+  try{
+    await fetch("https://piqkwewxbjumyqwtmnxn.supabase.co/rest/v1/pedidos_prov?id=eq."+id, {
+      method:"PATCH",
+      headers:{"apikey":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I","Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I","Content-Type":"application/json","Prefer":"return=minimal"},
+      body:JSON.stringify({estado:"enviado"})
+    });
+    const p = pedidosProv.find(x=>x.id===id);
+    if(p) p.estado="enviado";
+    renderPedidosProv();
+  }catch(e){ console.error(e); }
+}
+
+function enviarPPWhatsApp(){
+  const tel = document.getElementById("ppWANum").value.trim().replace(/[^0-9]/g,"");
+  if(!tel){ toast("Ingresá el número de WhatsApp.","err"); return; }
+  const msg = generarMensajePP();
+  const url = "https://wa.me/"+tel+"?text="+encodeURIComponent(msg);
+  window.open(url,"_blank");
+  document.getElementById("modalEnviarPP").classList.remove("show");
+  marcarEnviadoPP(ppId);
+  toast("Pedido enviado por WhatsApp ✅","ok");
+}
+
+function enviarPPEmail(){
+  const email = document.getElementById("ppEmail").value.trim();
+  if(!email){ toast("Ingresá el email del proveedor.","err"); return; }
+  const p = pedidosProv.find(x=>x.id===ppId); if(!p) return;
+  const subject = encodeURIComponent("Pedido de reposición - "+p.proveedor+" - "+p.fecha);
+  const body = encodeURIComponent(generarMensajePP().replace(/\n/g,"\r\n"));
+  window.open("mailto:"+email+"?subject="+subject+"&body="+body,"_blank");
+  document.getElementById("modalEnviarPP").classList.remove("show");
+  marcarEnviadoPP(ppId);
+  toast("Pedido enviado por Email ✅","ok");
+}
+
+async function marcarRecibidoPP(id){
+  if(checkViewer("Marcar pedidos como recibidos")) return;
+  const p = pedidosProv.find(x=>x.id===id); if(!p) return;
+
+  confirmCb = async()=>{
+    mostrarCargando(true);
+    try{
+      // Crear compra automáticamente
+      const fecha = new Date().toISOString().split("T")[0];
+      const lineasCompraGen = (p.lineas||[]).map(l=>{
+        const prod = productos.find(x=>x.sku.toUpperCase()===l.sku.toUpperCase());
+        return {sku:l.sku.toUpperCase(), producto:l.nombre||l.sku, cantidad:l.cantidad, costo:l.costo||0};
+      });
+      const total = lineasCompraGen.reduce((a,l)=>a+l.cantidad*l.costo,0);
+      const compra = {id:Date.now(), fecha, proveedor:p.proveedor, factura:"Pedido #"+id, obs:"Generado desde pedido a proveedor", formaPago:"A pagar", total, lineas:lineasCompraGen};
+
+      await sbGuardar("compra", compra);
+      compras.unshift(compra);
+
+      // Generar movimientos de ingreso
+      for(const l of lineasCompraGen){
+        const prod = productos.find(x=>x.sku.toUpperCase()===l.sku.toUpperCase());
+        const mov = {fecha, tipo:"Ingreso", sku:l.sku, producto:l.nombre||l.sku, cantidad:l.cantidad, costo:l.costo, precio:prod?prod.precio:0, obs:"Recepción pedido #"+id+" · "+p.proveedor, origen:""};
+        const saved = await sbGuardar("movimiento",mov);
+        movimientos.unshift(Object.assign({},mov,saved||{}));
+      }
+
+      // CC
+      const ccData = {fecha, tipo:"Compra", proveedor:p.proveedor, factura:"Pedido #"+id,
+        descripcion:lineasCompraGen.length+" producto"+(lineasCompraGen.length!==1?"s":"")+" recibidos",
+        importe:total, formaPago:"A pagar", compraId:compra.id};
+      const savedCC = await sbGuardar("cc",ccData);
+      cuentaCorriente.unshift(Object.assign({},ccData,savedCC||{}));
+
+      // Marcar pedido como recibido
+      await fetch("https://piqkwewxbjumyqwtmnxn.supabase.co/rest/v1/pedidos_prov?id=eq."+id, {
+        method:"PATCH",
+        headers:{"apikey":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I","Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I","Content-Type":"application/json","Prefer":"return=minimal"},
+        body:JSON.stringify({estado:"recibido"})
+      });
+      p.estado = "recibido";
+
+      renderPedidosProv(); renderCompras(); renderCC(); renderMovimientos(); renderPanel(); renderStock(); renderAlertas();
+      toast("Pedido recibido ✅ → Compra y Cuenta Corriente actualizadas","ok",5000);
+    }catch(e){ toast("Error: "+e.message,"err"); }
+    mostrarCargando(false);
+  };
+
+  document.getElementById("confirmBtn").textContent = "✅ Confirmar recepción";
+  document.getElementById("confirmBtn").style.background = "var(--green)";
+  document.getElementById("confirmMsg").innerHTML =
+    `<strong>¿Confirmar recepción del pedido de ${esc(p.proveedor)}?</strong><br><br>`+
+    `<span style="font-size:13px;color:var(--text-soft);">`+(p.lineas||[]).map(l=>esc(l.sku)+" x"+l.cantidad).join(" · ")+`</span><br><br>`+
+    `<span style="font-size:12px;">Se generará automáticamente:<br>✅ Compra en el historial<br>✅ Movimientos de ingreso de stock<br>✅ Deuda en Cuenta Corriente</span>`;
+  document.getElementById("modalConfirm").classList.add("show");
+}
+
+async function cancelarPedidoProv(id){
+  if(checkViewer("Cancelar pedidos")) return;
+  confirmCb = async()=>{
+    try{
+      await fetch("https://piqkwewxbjumyqwtmnxn.supabase.co/rest/v1/pedidos_prov?id=eq."+id, {
+        method:"PATCH",
+        headers:{"apikey":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I","Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I","Content-Type":"application/json","Prefer":"return=minimal"},
+        body:JSON.stringify({estado:"cancelado"})
+      });
+      const p = pedidosProv.find(x=>x.id===id);
+      if(p) p.estado="cancelado";
+      renderPedidosProv();
+      toast("Pedido cancelado.","ok");
+    }catch(e){ toast("Error: "+e.message,"err"); }
+  };
+  document.getElementById("confirmBtn").textContent = "Cancelar pedido";
+  document.getElementById("confirmBtn").style.background = "var(--red)";
+  document.getElementById("confirmMsg").innerHTML = "¿Cancelar este pedido?";
+  document.getElementById("modalConfirm").classList.add("show");
 }
 
 // ── Sidebar mobile ──
