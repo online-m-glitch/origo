@@ -1294,6 +1294,14 @@ tr:hover td{background:#fafbfc;}
         <datalist id="provListProd"></datalist>
       </div>
       <div class="form-group">
+        <label>Tipo de producto</label>
+        <select id="pTipo" onchange="toggleComboWrap()">
+          <option value="simple">📦 Simple</option>
+          <option value="combo">🧩 Combo (varios productos)</option>
+        </select>
+      </div>
+      <datalist id="skuListCombo"></datalist>
+      <div class="form-group">
         <label>Categoría</label>
         <input type="text" id="pCategoria" placeholder="Ej: Protectores">
       </div>
@@ -1356,6 +1364,27 @@ tr:hover td{background:#fafbfc;}
         </div>
       </div>
       <div style="font-size:11px;color:var(--text-soft);margin-top:6px;">Si ingresás una cantidad, se creará automáticamente un movimiento de Ingreso en stock.</div>
+    </div>
+
+    <!-- Combo: editor de componentes (solo visible si Tipo = Combo) -->
+    <div id="comboWrap" style="display:none;background:#fff7ed;border:1.5px solid #fdba74;border-radius:8px;padding:12px 14px;margin-bottom:14px;">
+      <div style="font-size:12px;font-weight:700;color:#9a3412;margin-bottom:8px;">🧩 Componentes del combo</div>
+      <div style="font-size:11px;color:var(--text-soft);margin-bottom:10px;">Un combo agrupa 2 o más productos simples. Al venderse el combo (Tienda o manual), se descuenta el stock de cada componente según la cantidad indicada. El stock disponible del combo se calcula solo, como el mínimo entre lo que permite cada componente.</div>
+      <div id="comboCompList" style="margin-bottom:10px;"></div>
+      <div style="display:flex;gap:8px;align-items:flex-end;">
+        <div class="form-group" style="margin:0;flex:2;">
+          <label style="font-size:11px;">SKU componente</label>
+          <input type="text" id="comboCompSku" list="skuListCombo" placeholder="Ej: CABLE-USB-C-1M" autocomplete="off" style="text-transform:uppercase;">
+        </div>
+        <div class="form-group" style="margin:0;flex:1;">
+          <label style="font-size:11px;">Cantidad</label>
+          <input type="number" id="comboCompCantidad" placeholder="1" min="1" value="1">
+        </div>
+        <button type="button" class="btn btn-ghost" style="white-space:nowrap;" onclick="agregarComponenteCombo()">+ Agregar</button>
+      </div>
+      <div style="margin-top:10px;">
+        <button type="button" class="btn btn-ghost" style="font-size:11px;" onclick="calcularCostoDesdeComponentes()">🧮 Calcular costo sumando componentes</button>
+      </div>
     </div>
 
     <div class="form-grid" style="margin-bottom:12px;">
@@ -1709,6 +1738,7 @@ let stockML = {}; // { sku: cantidadFullML }
 let feesML = {}; // { sku: {fee_amount, fee_pct} } comisión real ML
 let appConfig = {}; // configuración general (ej: impuesto estimado %)
 let editandoProdIdx = -1;
+let comboComponentesEditor = []; // [{sku, cantidad}] — estado del editor de componentes mientras el modal de producto está abierto
 let confirmCb = null;
 let compras = [];
 let lineasCompra = []; // líneas del remito en edición
@@ -1904,11 +1934,29 @@ async function sbGuardar(tipo, data){
 // ================================================================
 // CALCULAR STOCK DESDE MOVIMIENTOS
 // ================================================================
-function calcularStockDeposito(sku){
+// Combos: el stock disponible es virtual = mínimo entre (stock de cada componente / cantidad requerida), redondeado hacia abajo
+function stockVirtualCombo(p, calcFn, _visitados){
+  let min = Infinity;
+  for(const c of (p.componentes||[])){
+    const reqQty = Number(c.cantidad)||1;
+    const disp = Math.floor(calcFn(c.sku, _visitados)/reqQty);
+    if(disp<min) min=disp;
+  }
+  return min===Infinity?0:min;
+}
+function calcularStockDeposito(sku, _visitados){
+  const skuUp = sku.toUpperCase().trim();
+  _visitados = _visitados || new Set();
+  if(_visitados.has(skuUp)) return 0; // corte de seguridad ante referencias circulares
+  const p = productos.find(x=>x.sku.toUpperCase().trim()===skuUp);
+  if(p && p.tipo==="combo" && p.componentes && p.componentes.length){
+    _visitados.add(skuUp);
+    return stockVirtualCombo(p, calcularStockDeposito, _visitados);
+  }
   // Depósito propio: sube con Ingreso/Ajuste+, baja con Venta Tienda/Baja/Ajuste-/Envío a Full
   let s = 0;
   for(const m of movimientos){
-    if(m.sku.toUpperCase().trim() !== sku.toUpperCase().trim()) continue;
+    if(m.sku.toUpperCase().trim() !== skuUp) continue;
     const c = Number(m.cantidad)||0;
     if(m.tipo==="Ingreso"||m.tipo==="Ajuste+") s += c;
     if(m.tipo==="Baja"||m.tipo==="Ajuste-"||m.tipo==="Envío a Full") s -= c;
@@ -1916,10 +1964,17 @@ function calcularStockDeposito(sku){
   }
   return s;
 }
-function calcularStockFullML(sku){
+function calcularStockFullML(sku, _visitados){
   const skuUp = sku.toUpperCase().trim();
-  // Si hay dato sincronizado desde ML API, usarlo directamente
+  // Si hay dato sincronizado desde ML API, usarlo directamente (aplica también a combos con publicación propia en ML Full)
   if(stockML[skuUp] !== undefined) return stockML[skuUp];
+  _visitados = _visitados || new Set();
+  if(_visitados.has(skuUp)) return 0;
+  const p = productos.find(x=>x.sku.toUpperCase().trim()===skuUp);
+  if(p && p.tipo==="combo" && p.componentes && p.componentes.length){
+    _visitados.add(skuUp);
+    return stockVirtualCombo(p, calcularStockFullML, _visitados);
+  }
   // Si no, calcular desde movimientos
   let s = 0;
   for(const m of movimientos){
@@ -2041,7 +2096,7 @@ function renderProductos(){
       <td style="text-align:center;"><input type="checkbox" class="prod-check" data-sku="${esc(p.sku)}" onchange="actualizarSeleccion()" style="width:15px;height:15px;cursor:pointer;"></td>
       <td>${thumb}</td>
       <td><span class="sku-tag">${esc(p.sku)}</span></td>
-      <td style="max-width:180px;">${esc(p.nombre)}</td>
+      <td style="max-width:180px;">${esc(p.nombre)}${p.tipo==='combo'?' <span class="badge badge-orange" title="Combo de '+((p.componentes||[]).length)+' componente(s)" style="font-size:10px;">🧩 Combo</span>':''}</td>
       <td>${esc(p.proveedor||"")}</td>
       <td style="font-size:12px;">${esc(p.rubro||"")}</td>
       <td class="num">$${fmt(p.costo)}</td>
@@ -2059,6 +2114,60 @@ function renderProductos(){
   }).join("");
 }
 
+// ── Combos: editor de componentes ──
+function toggleComboWrap(){
+  const esCombo = document.getElementById("pTipo").value==="combo";
+  document.getElementById("comboWrap").style.display = esCombo?"block":"none";
+}
+function renderComboComponentes(){
+  const cont=document.getElementById("comboCompList");
+  if(!comboComponentesEditor.length){
+    cont.innerHTML=`<div style="font-size:12px;color:var(--text-soft);">Sin componentes agregados todavía.</div>`;
+    return;
+  }
+  cont.innerHTML = comboComponentesEditor.map((c,i)=>{
+    const p=productos.find(x=>x.sku.toUpperCase()===c.sku.toUpperCase());
+    const stockDisp = p?calcularStockDeposito(p.sku):0;
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:#fff;border:1px solid #fed7aa;border-radius:6px;margin-bottom:6px;">
+      <span class="sku-tag">${esc(c.sku)}</span>
+      <span style="flex:1;font-size:12px;color:var(--text-soft);">${esc(p?p.nombre:'⚠️ SKU no encontrado en catálogo')}</span>
+      <span style="font-size:12px;">x${c.cantidad}</span>
+      <span style="font-size:11px;color:var(--text-soft);">(stock dep: ${stockDisp})</span>
+      <button type="button" class="btn btn-danger btn-sm" onclick="quitarComponenteCombo(${i})">✕</button>
+    </div>`;
+  }).join("");
+}
+function agregarComponenteCombo(){
+  const skuActual=(document.getElementById("pSku").value||"").trim().toUpperCase();
+  const sku=document.getElementById("comboCompSku").value.trim().toUpperCase();
+  const cantidad=parseInt(document.getElementById("comboCompCantidad").value)||1;
+  if(!sku){ toast("Ingresá el SKU del componente.","err"); return; }
+  if(sku===skuActual){ toast("Un combo no puede tener como componente su propio SKU.","err"); return; }
+  const p=productos.find(x=>x.sku.toUpperCase()===sku);
+  if(!p){ toast("Ese SKU no existe en el catálogo.","err"); return; }
+  if(p.tipo==="combo"){ toast("No se pueden anidar combos dentro de otro combo.","err"); return; }
+  const existente=comboComponentesEditor.find(c=>c.sku.toUpperCase()===sku);
+  if(existente){ existente.cantidad=cantidad; }
+  else{ comboComponentesEditor.push({sku, cantidad}); }
+  document.getElementById("comboCompSku").value="";
+  document.getElementById("comboCompCantidad").value="1";
+  renderComboComponentes();
+}
+function quitarComponenteCombo(i){
+  comboComponentesEditor.splice(i,1);
+  renderComboComponentes();
+}
+function calcularCostoDesdeComponentes(){
+  if(!comboComponentesEditor.length){ toast("Agregá componentes primero.","err"); return; }
+  let total=0, faltantes=0;
+  for(const c of comboComponentesEditor){
+    const p=productos.find(x=>x.sku.toUpperCase()===c.sku.toUpperCase());
+    if(p) total += (p.costo||0)*c.cantidad; else faltantes++;
+  }
+  document.getElementById("pCosto").value = total.toFixed(2);
+  calcMargenModal();
+  toast(faltantes?`Costo calculado (⚠️ ${faltantes} componente(s) sin encontrar).`:"Costo actualizado desde componentes ✅","ok");
+}
 function abrirModalProducto(){
   editandoProdIdx=-1;
   document.getElementById("modalProdTitle").textContent="Nuevo producto";
@@ -2071,6 +2180,10 @@ function abrirModalProducto(){
   document.getElementById("pStockOn").value="1";
   document.getElementById("pStockFecha").value=new Date().toISOString().split("T")[0];
   document.getElementById("stockInicialWrap").style.display="block";
+  document.getElementById("pTipo").value="simple";
+  comboComponentesEditor=[];
+  renderComboComponentes();
+  toggleComboWrap();
   previewProdImg();
   document.getElementById("modalProducto").classList.add("show");
 }
@@ -2093,6 +2206,10 @@ function editarProducto(idx){
   document.getElementById("pMlItemCheck").textContent="";
   document.getElementById("pImg").value=(!p.img||p.img.startsWith("data:"))?"":(p.img||"");
   document.getElementById("stockInicialWrap").style.display="none"; // ocultar en edición
+  document.getElementById("pTipo").value=p.tipo==="combo"?"combo":"simple";
+  comboComponentesEditor=Array.isArray(p.componentes)?JSON.parse(JSON.stringify(p.componentes)):[];
+  renderComboComponentes();
+  toggleComboWrap();
   if(p.img){
     document.getElementById("pImgPrev").src=p.img;
     document.getElementById("pImgPrev").style.display="block";
@@ -2162,6 +2279,10 @@ async function guardarProducto(){
   const sku=document.getElementById("pSku").value.trim().toUpperCase();
   const nombre=document.getElementById("pNombre").value.trim();
   if(!sku||!nombre){ toast("SKU y nombre son obligatorios.","err"); return; }
+  const tipo=document.getElementById("pTipo").value==="combo"?"combo":"simple";
+  if(tipo==="combo" && comboComponentesEditor.length<2){
+    toast("Un combo debe tener al menos 2 componentes.","err"); return;
+  }
   const isNuevo = editandoProdIdx===-1;
   const obj={
     sku, nombre,
@@ -2175,6 +2296,8 @@ async function guardarProducto(){
     stockOn:parseInt(document.getElementById("pStockOn").value),
     ml_item_id:document.getElementById("pMlItemId").value.trim().toUpperCase()||null,
     img:document.getElementById("pImg").value.trim()||(editandoProdIdx>=0?productos[editandoProdIdx].img:""),
+    tipo,
+    componentes:tipo==="combo"?comboComponentesEditor.slice():[],
   };
   if(isNuevo){
     if(productos.find(p=>p.sku===sku)){ toast("Ya existe ese SKU.","err"); return; }
@@ -2371,6 +2494,33 @@ function actualizarSkuList(){
   document.getElementById("skuList").innerHTML=opts;
   const vt=document.getElementById("vtSkuList");
   if(vt) vt.innerHTML=opts;
+  const combo=document.getElementById("skuListCombo");
+  if(combo) combo.innerHTML=productos.filter(p=>p.tipo!=="combo").map(p=>`<option value="${esc(p.sku)}">`).join("");
+}
+// Combos: al vender un combo (Tienda o manual, NO ML Full — ese stock ya viene directo de la API),
+// se genera un movimiento "Baja" por cada componente para reflejar el consumo real de depósito.
+// Se etiqueta con [combo:ID] en obs para poder revertirlo si se elimina la venta.
+async function descontarComponentesCombo(p, cantidadVendida, fecha, refId){
+  if(!p || p.tipo!=="combo" || !p.componentes || !p.componentes.length) return;
+  const tag = "[combo:"+refId+"]";
+  for(const c of p.componentes){
+    const compSku = c.sku;
+    const compProd = productos.find(x=>x.sku.toUpperCase()===compSku.toUpperCase());
+    const cantidadNecesaria = (Number(c.cantidad)||1)*cantidadVendida;
+    const mov = {
+      fecha, tipo:"Baja", sku:compSku,
+      producto:compProd?compProd.nombre:compSku,
+      cantidad:cantidadNecesaria,
+      costo:compProd?compProd.costo:0,
+      precio:0,
+      obs:tag+" Consumo por combo "+p.sku+" ("+p.nombre+")",
+      origen:"Combo"
+    };
+    try{
+      const saved = await sbGuardar("movimiento", mov);
+      movimientos.unshift(Object.assign({}, mov, saved||{}));
+    }catch(e){ console.error("Error descontando componente "+compSku, e); }
+  }
 }
 async function registrarMovimiento(){
   if(checkViewer("Registrar movimientos")) return;
@@ -2382,8 +2532,12 @@ async function registrarMovimiento(){
   if(!fecha||!sku||!cantidad){ toast("Completá fecha, SKU y cantidad.","err"); return; }
   const p=productos.find(x=>x.sku.toUpperCase()===sku);
   const newMov={fecha, tipo, sku, producto:p?p.nombre:"SKU no encontrado", cantidad, costo:p?p.costo:0, precio:p?p.precio:0, obs, origen:""};
-  try{ const saved=await sbGuardar("movimiento",newMov); movimientos.unshift(Object.assign({},newMov,saved||{})); }
+  let savedMov;
+  try{ savedMov=await sbGuardar("movimiento",newMov); movimientos.unshift(Object.assign({},newMov,savedMov||{})); }
   catch(e){ return; }
+  if(tipo==="Venta" && p && p.tipo==="combo"){
+    await descontarComponentesCombo(p, cantidad, fecha, (savedMov&&savedMov.id)||Date.now());
+  }
   document.getElementById("mSku").value=""; document.getElementById("mCantidad").value=""; document.getElementById("mObs").value=""; document.getElementById("mProducto").value=""; document.getElementById("mCostoInfo").textContent="—"; document.getElementById("mPrecioInfo").textContent="—";
   renderMovimientos(); renderPanel(); renderStock(); renderAlertas();
   toast("Movimiento registrado ✅","ok");
@@ -2425,7 +2579,15 @@ function renderMovimientos(buscar){
   }).join("");
 }
 function eliminarMovimiento(idx){
-  confirmCb=async()=>{ const m=movimientos[idx]; await sbGuardar("deleteMovimiento",m.id); movimientos.splice(idx,1); renderMovimientos();renderPanel();renderStock();renderAlertas(); toast("Eliminado.","ok"); };
+  confirmCb=async()=>{
+    const m=movimientos[idx];
+    let compCount=0;
+    if(m.tipo==="Venta" && m.id) compCount=await revertirComponentesCombo(m.id);
+    await sbGuardar("deleteMovimiento",m.id);
+    movimientos.splice(movimientos.indexOf(m),1);
+    renderMovimientos();renderPanel();renderStock();renderAlertas();
+    toast("Eliminado."+(compCount?` (+${compCount} consumo(s) de componentes revertido(s))`:''),"ok");
+  };
   document.getElementById("confirmMsg").textContent="¿Eliminar este movimiento?";
   document.getElementById("modalConfirm").classList.add("show");
 }
@@ -3463,10 +3625,14 @@ async function registrarVentaTienda(){
 
   const vData={fecha, canal:'Tienda', sku, producto:p?p.nombre:'', cantidad, precio, ingresoBruto:cantidad*precio, totalNeto:cantidad*precio, obs};
   const mData={fecha, tipo:'Venta', sku, producto:p?p.nombre:'', cantidad, costo:p?p.costo:0, precio, obs:obs||'Venta Tienda', origen:'Tienda'};
+  let sm;
   try{
     const sv=await sbGuardar("venta",vData); ventas.unshift(Object.assign({},vData,sv||{}));
-    const sm=await sbGuardar("movimiento",mData); movimientos.unshift(Object.assign({},mData,sm||{}));
+    sm=await sbGuardar("movimiento",mData); movimientos.unshift(Object.assign({},mData,sm||{}));
   }catch(e){ toast("Error guardando venta: "+e.message,"err"); return; }
+  if(p && p.tipo==="combo"){
+    await descontarComponentesCombo(p, cantidad, fecha, (sm&&sm.id)||Date.now());
+  }
 
   // Limpiar
   ['vtSku','vtCantidad','vtPrecio','vtObs'].forEach(id=>document.getElementById(id).value='');
@@ -3524,17 +3690,31 @@ function renderVentas(){
   `;
 }
 
+// Busca y elimina (Supabase + local) los movimientos "Baja" de componentes generados por la venta de un combo
+async function revertirComponentesCombo(movId){
+  if(!movId) return 0;
+  const tag="[combo:"+movId+"]";
+  const paraBorrar=movimientos.filter(x=>x.obs&&x.obs.indexOf(tag)===0);
+  for(const cm of paraBorrar){ if(cm.id) await sbGuardar("deleteMovimiento",cm.id); }
+  if(paraBorrar.length) movimientos=movimientos.filter(x=>!(x.obs&&x.obs.indexOf(tag)===0));
+  return paraBorrar.length;
+}
 function eliminarVenta(idx){
   const v=ventas[idx];
   confirmCb=async()=>{
     const mIdx=movimientos.findIndex(function(m){
       return m.fecha===v.fecha && m.sku===v.sku && m.tipo==='Venta' && m.cantidad===v.cantidad;
     });
-    if(mIdx>=0){ const m=movimientos[mIdx]; if(m.id) await sbGuardar("deleteMovimiento",m.id); movimientos.splice(mIdx,1); }
+    let compCount=0;
+    if(mIdx>=0){
+      const m=movimientos[mIdx];
+      if(m.id){ compCount=await revertirComponentesCombo(m.id); await sbGuardar("deleteMovimiento",m.id); }
+      movimientos.splice(movimientos.indexOf(m),1);
+    }
     if(v.id) await sbGuardar("deleteVenta",v.id);
     ventas.splice(idx,1);
     renderVentas(); renderPanel(); renderStock(); renderAlertas(); renderMovimientos();
-    toast('Venta eliminada y movimiento revertido.','ok');
+    toast('Venta eliminada y movimiento revertido'+(compCount?` (+${compCount} consumo(s) de componentes revertido(s))`:'')+'.','ok');
   };
   document.getElementById('confirmBtn').textContent='Eliminar';
   document.getElementById('confirmMsg').innerHTML=`¿Eliminar venta de <strong>${esc(v.sku)}</strong> x${v.cantidad} (${esc(v.canal)})?<br><small style="color:var(--text-soft);">Se revertirá el movimiento de stock.</small>`;
