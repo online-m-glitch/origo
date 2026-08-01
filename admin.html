@@ -5195,6 +5195,18 @@ async function crearBorradorPP(proveedor, lineas){
   }catch(e){ toast("Error creando pedido: "+e.message,"err"); }
 }
 
+
+function abrirNuevoPedidoProvKey(idx){
+  const pp = window._ppReposicion;
+  if(!pp) return;
+  const prov = Object.keys(pp)[idx];
+  if(prov) abrirNuevoPedidoProv(prov, pp[prov]);
+}
+async function generarTodosPedidosProvGlobal(){
+  const pp = window._ppReposicion;
+  if(!pp) return;
+  await generarTodosPedidosProv(pp);
+}
 function abrirNuevoPedidoProv(proveedor, lineasSugeridas){
   ppId = null;
   ppLineas = lineasSugeridas.map(l=>({sku:l.sku, nombre:l.nombre, cantidad:l.cantPedir, costo:l.costo}));
