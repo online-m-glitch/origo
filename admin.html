@@ -365,6 +365,9 @@ tr:hover td{background:#fafbfc;}
     <div class="nav-item" onclick="mostrarSeccion('cuentacorriente')">
       <span class="icon">🏭</span> Cuenta Corriente
     </div>
+    <div class="nav-item" onclick="mostrarSeccion('proveedores')">
+      <span class="icon">🏭</span> Proveedores
+    </div>
     <div class="nav-section">Análisis</div>
     <div class="nav-item" onclick="mostrarSeccion('analisis')">
       <span class="icon">💰</span> Análisis ML
@@ -1248,6 +1251,30 @@ tr:hover td{background:#fafbfc;}
       </div>
     </div>
 
+
+    <!-- ========== PROVEEDORES ========== -->
+    <div id="sec-proveedores" class="section">
+      <div class="page-header">
+        <div><h2>Proveedores</h2><div class="sub">Datos de contacto y condiciones de entrega</div></div>
+        <button class="btn btn-primary admin-only" onclick="abrirModalProveedor()">+ Nuevo proveedor</button>
+      </div>
+      <div style="padding:24px;">
+        <div class="card">
+          <div class="card-header">
+            <h3>Listado de proveedores</h3>
+            <input class="search-input" type="text" id="provBuscar" placeholder="Buscar proveedor…" oninput="renderProveedores()">
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Nombre</th><th>WhatsApp</th><th>Email</th><th>Dirección</th><th>Horario</th><th>Obs. pedido predeterminadas</th><th>Acciones</th></tr></thead>
+              <tbody id="proveedoresBody"></tbody>
+            </table>
+            <div class="empty" id="proveedoresEmpty" style="display:none;"><div class="icon">🏭</div><p>Sin proveedores cargados todavía.</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div><!-- /main-content -->
 </div><!-- /adminPanel -->
 
@@ -1558,6 +1585,46 @@ tr:hover td{background:#fafbfc;}
   </div>
 </div>
 
+
+<!-- Modal proveedor -->
+<div class="overlay" id="modalProveedor">
+  <div class="modal" style="max-width:580px;">
+    <h3 id="provModalTitle">🏭 Nuevo proveedor</h3>
+    <div class="form-grid" style="margin-bottom:12px;">
+      <div class="form-group span2" style="grid-column:span 2;">
+        <label>Nombre del proveedor *</label>
+        <input type="text" id="provNombre" placeholder="Ej: ANTHAY">
+      </div>
+      <div class="form-group">
+        <label>📱 Teléfono WhatsApp</label>
+        <input type="text" id="provTelefono" placeholder="Ej: 5491112345678">
+      </div>
+      <div class="form-group">
+        <label>📧 Email</label>
+        <input type="email" id="provEmail" placeholder="proveedor@email.com">
+      </div>
+      <div class="form-group span2" style="grid-column:span 2;">
+        <label>📍 Dirección de entrega</label>
+        <input type="text" id="provDireccion" placeholder="Ej: Av. Corrientes 1234, Piso 3, Of. 12">
+      </div>
+      <div class="form-group">
+        <label>🕐 Horario de atención</label>
+        <input type="text" id="provHorario" placeholder="Ej: Lunes a viernes 9-18hs">
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:16px;">
+      <label>📝 Observaciones predeterminadas para pedidos</label>
+      <textarea id="provObsPedido" rows="4"
+        style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:7px;font-size:13px;resize:vertical;"
+        placeholder="Ej: Entregar en Av. Ejemplo 123, Piso 2. Horario: Lunes a viernes 9-17hs. Retira el pago en efectivo al momento de entrega."></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="cerrarModalProveedor()">Cancelar</button>
+      <button class="btn btn-success" onclick="guardarProveedor()">💾 Guardar</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal confirmar -->
 <div class="overlay" id="modalConfirm">
   <div class="modal modal-sm">
@@ -1648,6 +1715,7 @@ let lineasCompra = []; // líneas del remito en edición
 let ventas = [];
 let pedidos = [];
 let pedidosProv = [];
+let proveedoresDB = [];
 
 // ================================================================
 // LOGIN / LOGOUT
@@ -1760,6 +1828,11 @@ async function cargarDatos(){
       return Object.assign({},c,{lineas: typeof c.lineas==="string"?JSON.parse(c.lineas):(c.lineas||[])});
     });
     ventas = vents||[];
+    // Proveedores
+    try{
+      const provs = await sbGet("proveedores","order=nombre.asc");
+      proveedoresDB = provs||[];
+    }catch(e){ proveedoresDB=[]; }
     // Pedidos a proveedores
     try{
       const pp = await sbGet("pedidos_prov","order=created_at.desc&limit=200");
@@ -2933,6 +3006,7 @@ async function mostrarSeccion(id){
   if(id==="ventas"){ renderVentas(); renderVentasML(); renderVentasTienda(); }
   if(id==="pedidos"){ renderPedidos(); }
   if(id==="pedidosprov"){ renderPedidosProv(); }
+  if(id==="proveedores"){ renderProveedores(); }
   if(id==="ml"){ verificarTokenML(); }
   if(id==="analisis") renderAnalisis();
 }
@@ -3853,7 +3927,7 @@ function resetTotal(){
         mostrarCargando(true);
         try{ await sbGuardar("reset",null); }catch(e){ toast("Error al resetear: "+e.message,"err"); mostrarCargando(false); return; }
         productos=[]; movimientos=[]; cuentaCorriente=[];
-        stockML={}; compras=[]; ventas=[]; pedidos=[]; pedidosProv=[]; lineasCompra=[]; mlLineasPreview=[];
+        stockML={}; compras=[]; ventas=[]; pedidos=[]; pedidosProv=[]; proveedoresDB=[]; lineasCompra=[]; mlLineasPreview=[];
         actualizarProvLists(); actualizarSkuList(); actualizarSkuListCompras();
         renderPanel(); renderProductos(); renderStock(); renderAlertas();
         renderMovimientos(); renderCC(); renderCompras(); renderVentas(); renderAnalisis();
@@ -5096,6 +5170,7 @@ function renderPedidosProv(){
           ${p.estado==="aprobado"||p.estado==="borrador"?`<button class="btn btn-success btn-sm admin-only" onclick="abrirEnviarPP(${p.id})" title="Enviar al proveedor">📤</button>`:""}
           ${p.estado==="enviado"?`<button class="btn btn-primary btn-sm admin-only" onclick="marcarRecibidoPP(${p.id})" title="Marcar como recibido">📦 Recibido</button>`:""}
           ${p.estado==="borrador"?`<button class="btn btn-danger btn-sm admin-only" onclick="cancelarPedidoProv(${p.id})" title="Cancelar">✕</button>`:""}
+          <button class="btn btn-danger btn-sm admin-only" onclick="eliminarPedidoProv(${p.id})" title="Eliminar permanentemente" style="opacity:.7;">🗑️</button>
         </div>
       </td>
     </tr>`;
@@ -5350,6 +5425,8 @@ function abrirEnviarPP(id){
     `<span style="font-size:11px;color:var(--text-soft);">`+lineas.map(l=>esc(l.sku)+" x"+l.cantidad).join(" · ")+`</span>`;
   document.getElementById("ppWANum").value = "";
   document.getElementById("ppEmail").value = "";
+  document.getElementById("ppEnviarObs").value = "";
+  autocompletarDatosProveedor(p.proveedor);
   document.getElementById("modalEnviarPP").classList.add("show");
 }
 
@@ -5367,7 +5444,9 @@ function generarMensajePP(){
     msg += "\n";
   }
   msg += "\n*Total estimado: $"+fmt(p.total)+"*\n";
-  msg += "\nQuedo a disposición para coordinar la entrega. Gracias!";
+  const obs = document.getElementById("ppEnviarObs")?.value?.trim();
+  if(obs) msg += "\n\n📝 *Observaciones:*\n"+obs;
+  msg += "\n\nQuedo a disposición. Gracias!";
   return msg;
 }
 
@@ -5464,6 +5543,23 @@ async function marcarRecibidoPP(id){
   document.getElementById("modalConfirm").classList.add("show");
 }
 
+
+async function eliminarPedidoProv(id){
+  if(checkViewer("Eliminar pedidos")) return;
+  confirmCb = async()=>{
+    try{
+      await sbDelete("pedidos_prov","id=eq."+id);
+      pedidosProv = pedidosProv.filter(p=>p.id!==id);
+      renderPedidosProv();
+      toast("Pedido eliminado.","ok");
+    }catch(e){ toast("Error: "+e.message,"err"); }
+  };
+  document.getElementById("confirmBtn").textContent = "🗑️ Eliminar";
+  document.getElementById("confirmBtn").style.background = "var(--red)";
+  document.getElementById("confirmMsg").innerHTML = "¿Eliminar este pedido permanentemente? Esta acción no se puede deshacer.";
+  document.getElementById("modalConfirm").classList.add("show");
+}
+
 async function cancelarPedidoProv(id){
   if(checkViewer("Cancelar pedidos")) return;
   confirmCb = async()=>{
@@ -5483,6 +5579,131 @@ async function cancelarPedidoProv(id){
   document.getElementById("confirmBtn").style.background = "var(--red)";
   document.getElementById("confirmMsg").innerHTML = "¿Cancelar este pedido?";
   document.getElementById("modalConfirm").classList.add("show");
+}
+
+
+// ================================================================
+// PROVEEDORES
+// ================================================================
+let editandoProvId = null;
+
+function renderProveedores(){
+  const q = (document.getElementById("provBuscar")?.value||"").toLowerCase().trim();
+  const lista = proveedoresDB.filter(p=>
+    !q || (p.nombre||"").toLowerCase().includes(q)
+  );
+  const tbody = document.getElementById("proveedoresBody");
+  const empty = document.getElementById("proveedoresEmpty");
+  if(!lista.length){ if(tbody) tbody.innerHTML=""; if(empty) empty.style.display="block"; return; }
+  if(empty) empty.style.display="none";
+  if(tbody) tbody.innerHTML = lista.map(p=>`<tr>
+    <td><strong>${esc(p.nombre||"")}</strong></td>
+    <td style="font-size:12px;">${p.telefono?`<a href="https://wa.me/${p.telefono}" target="_blank" style="color:var(--green);">📱 ${esc(p.telefono)}</a>`:"—"}</td>
+    <td style="font-size:12px;">${p.email?`<a href="mailto:${esc(p.email)}" style="color:var(--ml-blue);">📧 ${esc(p.email)}</a>`:"—"}</td>
+    <td style="font-size:12px;max-width:160px;">${esc(p.direccion||"—")}</td>
+    <td style="font-size:12px;">${esc(p.horario||"—")}</td>
+    <td style="font-size:12px;max-width:200px;color:var(--text-soft);">${esc((p.obs_pedido||"").substring(0,60)+(p.obs_pedido?.length>60?"…":""))}</td>
+    <td>
+      <div class="btn-group">
+        <button class="btn btn-ghost btn-sm admin-only" onclick="editarProveedor(${p.id})" title="Editar">✏️</button>
+        <button class="btn btn-danger btn-sm admin-only" onclick="eliminarProveedor(${p.id})" title="Eliminar">🗑️</button>
+      </div>
+    </td>
+  </tr>`).join("");
+}
+
+function abrirModalProveedor(){
+  if(checkViewer("Gestionar proveedores")) return;
+  editandoProvId = null;
+  document.getElementById("provModalTitle").textContent = "🏭 Nuevo proveedor";
+  ["provNombre","provTelefono","provEmail","provDireccion","provHorario","provObsPedido"].forEach(id=>{
+    document.getElementById(id).value="";
+  });
+  document.getElementById("modalProveedor").classList.add("show");
+}
+
+function editarProveedor(id){
+  if(checkViewer("Gestionar proveedores")) return;
+  const p = proveedoresDB.find(x=>x.id===id); if(!p) return;
+  editandoProvId = id;
+  document.getElementById("provModalTitle").textContent = "✏️ Editar proveedor";
+  document.getElementById("provNombre").value = p.nombre||"";
+  document.getElementById("provTelefono").value = p.telefono||"";
+  document.getElementById("provEmail").value = p.email||"";
+  document.getElementById("provDireccion").value = p.direccion||"";
+  document.getElementById("provHorario").value = p.horario||"";
+  document.getElementById("provObsPedido").value = p.obs_pedido||"";
+  document.getElementById("modalProveedor").classList.add("show");
+}
+
+function cerrarModalProveedor(){
+  document.getElementById("modalProveedor").classList.remove("show");
+  editandoProvId = null;
+}
+document.getElementById("modalProveedor")?.addEventListener("click", e=>{ if(e.target===e.currentTarget) cerrarModalProveedor(); });
+
+async function guardarProveedor(){
+  if(checkViewer("Gestionar proveedores")) return;
+  const nombre = document.getElementById("provNombre").value.trim().toUpperCase();
+  if(!nombre){ toast("Ingresá el nombre del proveedor.","err"); return; }
+
+  const data = {
+    nombre,
+    telefono: document.getElementById("provTelefono").value.trim(),
+    email: document.getElementById("provEmail").value.trim(),
+    direccion: document.getElementById("provDireccion").value.trim(),
+    horario: document.getElementById("provHorario").value.trim(),
+    obs_pedido: document.getElementById("provObsPedido").value.trim()
+  };
+
+  mostrarCargando(true);
+  try{
+    if(editandoProvId){
+      await fetch("https://piqkwewxbjumyqwtmnxn.supabase.co/rest/v1/proveedores?id=eq."+editandoProvId, {
+        method:"PATCH",
+        headers:{"apikey":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I","Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I","Content-Type":"application/json","Prefer":"return=minimal"},
+        body: JSON.stringify(data)
+      });
+      const idx = proveedoresDB.findIndex(p=>p.id===editandoProvId);
+      if(idx>=0) proveedoresDB[idx] = Object.assign({},proveedoresDB[idx],data);
+      toast("Proveedor actualizado ✅","ok");
+    } else {
+      const saved = await sbInsert("proveedores", data);
+      proveedoresDB.push(Object.assign({},data,{id:saved?.id||Date.now()}));
+      toast("Proveedor agregado ✅","ok");
+    }
+    cerrarModalProveedor();
+    renderProveedores();
+  }catch(e){ toast("Error: "+e.message,"err"); }
+  mostrarCargando(false);
+}
+
+async function eliminarProveedor(id){
+  if(checkViewer("Gestionar proveedores")) return;
+  confirmCb = async()=>{
+    try{
+      await sbDelete("proveedores","id=eq."+id);
+      proveedoresDB = proveedoresDB.filter(p=>p.id!==id);
+      renderProveedores();
+      toast("Proveedor eliminado.","ok");
+    }catch(e){ toast("Error: "+e.message,"err"); }
+  };
+  document.getElementById("confirmBtn").textContent = "🗑️ Eliminar";
+  document.getElementById("confirmBtn").style.background = "var(--red)";
+  document.getElementById("confirmMsg").innerHTML = "¿Eliminar este proveedor? Solo se eliminan los datos de contacto, no las compras ni movimientos.";
+  document.getElementById("modalConfirm").classList.add("show");
+}
+
+// ── Autocompletar datos del proveedor en modal de envío ──
+function autocompletarDatosProveedor(nombreProv){
+  const p = proveedoresDB.find(x=>(x.nombre||"").toUpperCase()===(nombreProv||"").toUpperCase());
+  if(!p) return;
+  const telEl = document.getElementById("ppWANum");
+  const emailEl = document.getElementById("ppEmail");
+  const obsEl = document.getElementById("ppEnviarObs");
+  if(telEl && p.telefono) telEl.value = p.telefono;
+  if(emailEl && p.email) emailEl.value = p.email;
+  if(obsEl && p.obs_pedido) obsEl.value = p.obs_pedido;
 }
 
 // ── Sidebar mobile ──
