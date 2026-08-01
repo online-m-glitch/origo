@@ -5137,23 +5137,16 @@ function generarPedidoReposicion(){
   if(provs.length === 1){
     abrirNuevoPedidoProv(provs[0], porProveedor[provs[0]]);
   } else {
-    // Mostrar selector de proveedor
+    // Guardar en variable global para evitar JSON inline en onclick
+    window._ppReposicion = porProveedor;
     confirmCb = null;
     document.getElementById("confirmBtn").style.display="none";
     document.getElementById("confirmMsg").innerHTML =
       `<strong>Seleccioná el proveedor para generar el pedido:</strong><br><br>`+
-      provs.map(pv=>`
-        <button class="btn btn-primary" style="margin:4px;width:100%;" onclick="
-          cerrarConfirm();
-          document.getElementById('confirmBtn').style.display='';
-          abrirNuevoPedidoProv('${esc(pv)}', ${JSON.stringify(porProveedor[pv]).replace(/'/g,"&#39;")});
-        ">${esc(pv)} (${porProveedor[pv].length} producto${porProveedor[pv].length!==1?"s":""})</button>
-      `).join("")+
-      `<br><button class="btn btn-ghost" style="margin:4px;width:100%;" onclick="
-        cerrarConfirm();
-        document.getElementById('confirmBtn').style.display='';
-        generarTodosPedidosProv(${JSON.stringify(porProveedor).replace(/'/g,"&#39;")});
-      ">📋 Generar uno por cada proveedor</button>`;
+      provs.map((pv,i)=>
+        `<button class="btn btn-primary" style="margin:4px;width:100%;" onclick="cerrarConfirm();document.getElementById('confirmBtn').style.display='';abrirNuevoPedidoProvKey(${i})">${esc(pv)} (${porProveedor[pv].length} producto${porProveedor[pv].length!==1?"s":""})</button>`
+      ).join("")+
+      `<br><button class="btn btn-ghost" style="margin:4px;width:100%;" onclick="cerrarConfirm();document.getElementById('confirmBtn').style.display='';generarTodosPedidosProvGlobal()">📋 Generar uno por cada proveedor</button>`;
     document.getElementById("modalConfirm").classList.add("show");
   }
 }
