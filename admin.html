@@ -1084,6 +1084,7 @@ tr:hover td{background:#fafbfc;}
               </label>
               <button class="btn btn-ghost" onclick="aplicarRetencionesRealesAnalisis()" title="Calcula el % promedio real de IIBB y de IVA+Ganancias a partir de tus ventas ML con facturación sincronizada, y lo carga en los campos de al lado">📊 Usar retenciones reales</button>
               <button class="btn btn-ghost" onclick="sincronizarFeesML()">🔄 Sincronizar comisiones ML</button>
+              <input class="search-input" type="text" id="analisisBuscar" placeholder="Buscar SKU, MLA o producto…" oninput="renderAnalisis()" style="width:180px;">
               <select id="analisisFiltro" onchange="renderAnalisis()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
                 <option value="">Todos</option>
                 <option value="Rentable">Solo rentables</option>
@@ -2784,9 +2785,16 @@ function renderAnalisis(){
   const inpPer=document.getElementById("percepcionPctInput");
   if(inpPer && document.activeElement!==inpPer){ inpPer.value=(appConfig.percepcion_pct!=null)?appConfig.percepcion_pct:0; }
   const filtro=document.getElementById("analisisFiltro").value;
+  const q=(document.getElementById("analisisBuscar")?.value||"").trim().toLowerCase();
   const lista=productos.filter(p=>{
-    if(!filtro) return true;
-    return calcAnaliML(p).rec===filtro;
+    if(filtro && calcAnaliML(p).rec!==filtro) return false;
+    if(q){
+      const enSku=(p.sku||"").toLowerCase().includes(q);
+      const enMla=(p.ml_item_id||"").toLowerCase().includes(q);
+      const enNombre=(p.nombre||"").toLowerCase().includes(q);
+      if(!enSku && !enMla && !enNombre) return false;
+    }
+    return true;
   });
   document.getElementById("analisisBody").innerHTML=lista.map(p=>{
     const a=calcAnaliML(p);
