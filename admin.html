@@ -1318,8 +1318,12 @@ tr:hover td{background:#fafbfc;}
         <input type="number" id="pCosto" placeholder="0" oninput="calcMargenModal()">
       </div>
       <div class="form-group">
-        <label>Precio Venta ML ($) <span style="font-weight:400;color:var(--text-soft);">— se actualiza desde Análisis ML</span></label>
-        <input type="number" id="pPrecio" placeholder="0" readonly style="background:#f8f9fa;color:#666;">
+        <label>Precio Venta ML ($)</label>
+        <div style="display:flex;gap:6px;">
+          <input type="number" id="pPrecio" placeholder="0" style="flex:1;" oninput="calcMargenModal()">
+          <button type="button" id="pBtnActualizarML" class="btn btn-ghost" style="white-space:nowrap;display:none;" onclick="actualizarPrecioModal()" title="Actualizar este precio en MercadoLibre">💲 Actualizar en ML</button>
+        </div>
+        <div id="pPrecioMLInfo" style="font-size:11px;margin-top:4px;"></div>
       </div>
       <div class="form-group">
         <label>Precio Venta Tienda ($)</label>
@@ -1343,7 +1347,7 @@ tr:hover td{background:#fafbfc;}
       <div class="form-group">
         <label>Publicación ML (MLA)</label>
         <div style="display:flex;gap:6px;">
-          <input type="text" id="pMlItemId" placeholder="Ej: MLA123456789" style="flex:1;">
+          <input type="text" id="pMlItemId" placeholder="Ej: MLA123456789" style="flex:1;" oninput="toggleBtnActualizarML()">
           <button type="button" class="btn btn-ghost" style="white-space:nowrap;" onclick="verificarMlItem()">🔍 Verificar</button>
         </div>
         <div id="pMlItemCheck" style="font-size:11px;margin-top:4px;"></div>
@@ -2184,6 +2188,7 @@ function abrirModalProducto(){
   document.getElementById("pMlItemCheck").textContent="";
   document.getElementById("pSku").disabled=false;
   document.getElementById("pPrecio").readOnly=false; // producto nuevo: sin ML todavía, se puede cargar precio inicial a mano
+  toggleBtnActualizarML();
   document.getElementById("pStockMin").value="15";
   document.getElementById("pStockOn").value="1";
   document.getElementById("pStockFecha").value=new Date().toISOString().split("T")[0];
@@ -2206,7 +2211,7 @@ function editarProducto(idx){
   document.getElementById("pRubro").value=p.rubro||"";
   document.getElementById("pCosto").value=p.costo||"";
   document.getElementById("pPrecio").value=(feesML[p.sku]&&feesML[p.sku].ml_price>0)?feesML[p.sku].ml_price:(p.precio||"");
-  document.getElementById("pPrecio").readOnly=!!p.ml_item_id; // si ya está vinculado a ML, el precio se maneja desde Análisis
+  toggleBtnActualizarML();
   document.getElementById("pPrecioTienda").value=p.precioTienda||"";
   document.getElementById("pStockMin").value=p.stockMin||15;
   document.getElementById("pStockOn").value=(p.stockOn!==0)?1:0;
@@ -2258,6 +2263,52 @@ async function verificarMlItem(){
   }catch(e){
     el.textContent="⚠️ Error al consultar ML: "+e.message; el.style.color="#dc2626";
   }
+}
+function toggleBtnActualizarML(){
+  const id=(document.getElementById("pMlItemId").value||"").trim();
+  document.getElementById("pBtnActualizarML").style.display=id?"inline-flex":"none";
+  document.getElementById("pPrecioMLInfo").textContent=id?"":"Vinculá una Publicación ML para poder actualizar el precio directo desde acá.";
+}
+async function actualizarPrecioModal(){
+  if(checkViewer("Actualizar precio en ML")) return;
+  const sku=document.getElementById("pSku").value.trim().toUpperCase();
+  const mlItemId=document.getElementById("pMlItemId").value.trim().toUpperCase();
+  const nuevoPrecio=parseFloat(document.getElementById("pPrecio").value)||0;
+  const info=document.getElementById("pPrecioMLInfo");
+  if(!mlItemId){ toast("Ingresá una Publicación ML (MLA) primero.","err"); return; }
+  if(!nuevoPrecio){ toast("Cargá un precio válido primero.","err"); return; }
+  if(!mlToken){ await verificarTokenML(); }
+  if(!mlToken){ toast("Primero conectá con MercadoLibre (pestaña MercadoLibre API).","err"); return; }
+
+  info.textContent="Actualizando en MercadoLibre..."; info.style.color="#6b7280";
+  mostrarCargando(true);
+  try{
+    const res=await pushPrecioML(mlItemId, nuevoPrecio);
+    if(!res.ok){
+      const msg="No se pudo actualizar: "+(res.data.message||res.data.error||"error desconocido");
+      toast(msg,"err",6000); info.textContent="❌ "+msg; info.style.color="#dc2626";
+      mostrarCargando(false); return;
+    }
+    const precioFinal=res.data.price||nuevoPrecio;
+    document.getElementById("pPrecio").value=precioFinal;
+    calcMargenModal();
+    // Reflejamos también en feesML (para que Análisis ML lo vea actualizado sin tener que re-sincronizar)
+    if(!feesML[sku]) feesML[sku]={fee_amount:0,fee_pct:0,shipping_cost:0,fee_fixed:0,ml_price:0};
+    feesML[sku].ml_price=precioFinal;
+    await sbGuardar("mlfee",{sku, ml_item_id:mlItemId, fee_amount:feesML[sku].fee_amount, fee_pct:feesML[sku].fee_pct, shipping_cost:feesML[sku].shipping_cost, fee_fixed:feesML[sku].fee_fixed, ml_price:precioFinal, raw:{}}).catch(()=>{});
+    // Si el producto ya existe (edición), alineamos también el precio guardado en catálogo
+    if(editandoProdIdx>=0){
+      productos[editandoProdIdx].precio=precioFinal;
+      await sbUpdate("productos","sku=eq."+encodeURIComponent(sku),{precio:precioFinal}).catch(()=>{});
+    }
+    toast("Precio actualizado en MercadoLibre ✅","ok");
+    info.textContent="✅ Actualizado en ML: $"+fmt(precioFinal); info.style.color="#16a34a";
+    renderProductos(); renderAnalisis();
+  }catch(e){
+    toast("Error al actualizar: "+e.message,"err",6000);
+    info.textContent="⚠️ Error: "+e.message; info.style.color="#dc2626";
+  }
+  mostrarCargando(false);
 }
 function previewProdImg(){
   const url=document.getElementById("pImg").value.trim();
