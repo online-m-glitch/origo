@@ -455,7 +455,7 @@ tr:hover td{background:#fafbfc;}
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th style="width:32px;"><input type="checkbox" id="checkAll" onchange="toggleCheckAll(this.checked)" style="width:15px;height:15px;cursor:pointer;"></th><th>Img</th><th>SKU</th><th>Producto</th><th>Proveedor</th><th>Rubro</th><th>Costo ($)</th><th>Precio ML ($)</th><th>Precio Tienda ($)</th><th>Margen %</th><th>Stock Mín</th><th>Tienda</th><th style="text-align:center;">ML</th><th>Acciones</th></tr></thead>
+              <thead><tr><th style="width:32px;"><input type="checkbox" id="checkAll" onchange="toggleCheckAll(this.checked)" style="width:15px;height:15px;cursor:pointer;"></th><th>Img</th><th>SKU</th><th>Producto</th><th>Proveedor</th><th>Rubro</th><th>Costo ($)</th><th>Precio ML ($)</th><th>Precio Tienda ($)</th><th>Margen % ML</th><th>Margen % Tienda</th><th>Stock Mín</th><th>Tienda</th><th style="text-align:center;">ML</th><th>Acciones</th></tr></thead>
               <tbody id="productosBody"></tbody>
             </table>
             <div class="empty" id="productosEmpty" style="display:none;"><div class="icon">📦</div><p>No hay productos que coincidan.</p></div>
@@ -1330,11 +1330,15 @@ tr:hover td{background:#fafbfc;}
       </div>
       <div class="form-group">
         <label>Precio Venta Tienda ($)</label>
-        <input type="number" id="pPrecioTienda" placeholder="0">
+        <input type="number" id="pPrecioTienda" placeholder="0" oninput="calcMargenModal()">
       </div>
       <div class="form-group">
         <label>Margen % (ML)</label>
         <input type="text" id="pMargen" readonly style="background:#f8f9fa;font-weight:700;color:#0d2259;">
+      </div>
+      <div class="form-group">
+        <label>Margen % (Tienda)</label>
+        <input type="text" id="pMargenTienda" readonly style="background:#f8f9fa;font-weight:700;color:#0d2259;">
       </div>
       <div class="form-group">
         <label>Stock mínimo</label>
@@ -1397,16 +1401,23 @@ tr:hover td{background:#fafbfc;}
 
     <div class="form-grid" style="margin-bottom:12px;">
       <div class="form-group span2">
-        <label>Imagen (URL o Base64)</label>
-        <input type="text" id="pImg" placeholder="https://… o base64" oninput="previewProdImg()">
-        <div id="pImgWrap">
-          <div class="img-placeholder" id="pImgPh">Vista previa</div>
-          <img class="img-preview" id="pImgPrev" style="display:none;" alt="preview">
+        <label>Fotos del producto <span style="font-weight:400;color:var(--text-soft);">— uso interno, no se muestran en la tienda online (index.html)</span></label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
+          <input type="text" id="pFotoUrl" placeholder="Pegar URL de una foto…" style="flex:1;min-width:220px;padding:8px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:13px;" onkeydown="if(event.key==='Enter'){event.preventDefault();agregarFotoUrl();}">
+          <button type="button" class="btn btn-ghost" onclick="agregarFotoUrl()">+ Agregar URL</button>
+          <label class="btn btn-ghost" style="cursor:pointer;white-space:nowrap;">
+            📤 Subir foto(s)
+            <input type="file" id="pImgFile" accept="image/*" multiple style="display:none;" onchange="cargarFotosProd(this)">
+          </label>
         </div>
+        <div id="pFotosGrid" style="display:flex;gap:10px;flex-wrap:wrap;"></div>
+        <div style="font-size:11px;color:var(--text-soft);margin-top:6px;">La primera foto es la portada (se usa como miniatura en el catálogo). Podés subir varias a la vez.</div>
       </div>
-      <div class="form-group">
-        <label>O subir imagen</label>
-        <input type="file" id="pImgFile" accept="image/*" onchange="cargarImgProd(this)">
+    </div>
+    <div class="form-grid" style="margin-bottom:12px;">
+      <div class="form-group span2">
+        <label>Descripción <span style="font-weight:400;color:var(--text-soft);">— uso interno, no se muestra en la tienda online</span></label>
+        <textarea id="pDescripcion" rows="3" placeholder="Detalles técnicos, notas internas, observaciones…" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:13px;font-family:inherit;resize:vertical;"></textarea>
       </div>
     </div>
     <div class="modal-actions">
@@ -1760,6 +1771,7 @@ let feesML = {}; // { sku: {fee_amount, fee_pct} } comisión real ML
 let appConfig = {}; // configuración general (ej: impuesto estimado %)
 let editandoProdIdx = -1;
 let comboComponentesEditor = []; // [{sku, cantidad}] — estado del editor de componentes mientras el modal de producto está abierto
+let productoImagenesEditor = []; // [urlOrBase64, ...] — estado de la galería de fotos mientras el modal de producto está abierto
 let confirmCb = null;
 let compras = [];
 let lineasCompra = []; // líneas del remito en edición
@@ -2110,8 +2122,12 @@ function renderProductos(){
     const margenVal = p.costo&&p.precio ? ((p.precio-p.costo)/p.precio*100) : null;
     const margen = margenVal!==null ? margenVal.toFixed(0)+"%" : "—";
     const margenCls = margenVal===null?"":margenVal>=25?"num-pos":margenVal>=10?"":"num-neg";
+    const margenTiendaVal = p.costo&&p.precioTienda ? ((p.precioTienda-p.costo)/p.precioTienda*100) : null;
+    const margenTienda = margenTiendaVal!==null ? margenTiendaVal.toFixed(0)+"%" : "—";
+    const margenTiendaCls = margenTiendaVal===null?"":margenTiendaVal>=25?"num-pos":margenTiendaVal>=10?"":"num-neg";
+    const cantFotos = (p.imagenes&&p.imagenes.length)?p.imagenes.length:(p.img?1:0);
     const thumb = p.img
-      ? `<img class="thumb" src="${p.img}" alt="" onerror="this.style.display='none'">`
+      ? `<div style="position:relative;display:inline-block;"><img class="thumb" src="${p.img}" alt="" onerror="this.style.display='none'">${cantFotos>1?`<span style="position:absolute;bottom:-4px;right:-4px;background:var(--ml-blue);color:#fff;font-size:9px;font-weight:700;border-radius:8px;padding:1px 4px;">+${cantFotos-1}</span>`:''}</div>`
       : `<div class="no-thumb">sin img</div>`;
     return `<tr>
       <td style="text-align:center;"><input type="checkbox" class="prod-check" data-sku="${esc(p.sku)}" onchange="actualizarSeleccion()" style="width:15px;height:15px;cursor:pointer;"></td>
@@ -2124,6 +2140,7 @@ function renderProductos(){
       <td class="num">$${fmt(p.precio)}</td>
       <td class="num">$${fmt(p.precioTienda||0)}</td>
       <td class="num ${margenCls}">${margen}</td>
+      <td class="num ${margenTiendaCls}">${margenTienda}</td>
       <td class="num">${p.stockMin||0}</td>
       <td><span class="badge ${p.stockOn!==0?'badge-green':'badge-red'}">${p.stockOn!==0?'Visible':'Oculto'}</span></td>
       <td style="text-align:center;">${p.ml_item_id?`<img src="${ML_LOGO_B64}" alt="Vinculado a ML" title="Vinculado a ML: ${esc(p.ml_item_id)}" style="width:22px;height:22px;object-fit:contain;">`:''}</td>
@@ -2199,8 +2216,11 @@ function calcularCostoDesdeComponentes(mostrarToast){
 function abrirModalProducto(){
   editandoProdIdx=-1;
   document.getElementById("modalProdTitle").textContent="Nuevo producto";
-  ["pSku","pNombre","pProveedor","pCategoria","pRubro","pCosto","pPrecio","pPrecioTienda","pImg","pImgFile","pStockInicial","pMlItemId"].forEach(id=>document.getElementById(id).value="");
+  ["pSku","pNombre","pProveedor","pCategoria","pRubro","pCosto","pPrecio","pPrecioTienda","pStockInicial","pMlItemId"].forEach(id=>document.getElementById(id).value="");
+  document.getElementById("pImgFile").value="";
+  document.getElementById("pDescripcion").value="";
   document.getElementById("pMargen").value="";
+  document.getElementById("pMargenTienda").value="";
   document.getElementById("pMlItemCheck").textContent="";
   document.getElementById("pSku").disabled=false;
   document.getElementById("pPrecio").readOnly=false; // producto nuevo: sin ML todavía, se puede cargar precio inicial a mano
@@ -2213,7 +2233,8 @@ function abrirModalProducto(){
   comboComponentesEditor=[];
   renderComboComponentes();
   toggleComboWrap();
-  previewProdImg();
+  productoImagenesEditor=[];
+  renderFotosGrid();
   document.getElementById("modalProducto").classList.add("show");
 }
 function editarProducto(idx){
@@ -2233,17 +2254,14 @@ function editarProducto(idx){
   document.getElementById("pStockOn").value=(p.stockOn!==0)?1:0;
   document.getElementById("pMlItemId").value=p.ml_item_id||"";
   document.getElementById("pMlItemCheck").textContent="";
-  document.getElementById("pImg").value=(!p.img||p.img.startsWith("data:"))?"":(p.img||"");
+  document.getElementById("pDescripcion").value=p.descripcion||"";
   document.getElementById("stockInicialWrap").style.display="none"; // ocultar en edición
   document.getElementById("pTipo").value=p.tipo==="combo"?"combo":"simple";
   comboComponentesEditor=Array.isArray(p.componentes)?JSON.parse(JSON.stringify(p.componentes)):[];
   renderComboComponentes();
   toggleComboWrap();
-  if(p.img){
-    document.getElementById("pImgPrev").src=p.img;
-    document.getElementById("pImgPrev").style.display="block";
-    document.getElementById("pImgPh").style.display="none";
-  } else previewProdImg();
+  productoImagenesEditor=Array.isArray(p.imagenes)&&p.imagenes.length?p.imagenes.slice():(p.img?[p.img]:[]);
+  renderFotosGrid();
   calcMargenModal();
   document.getElementById("modalProducto").classList.add("show");
 }
@@ -2326,18 +2344,40 @@ async function actualizarPrecioModal(){
   }
   mostrarCargando(false);
 }
-function previewProdImg(){
-  const url=document.getElementById("pImg").value.trim();
-  const img=document.getElementById("pImgPrev"),ph=document.getElementById("pImgPh");
-  if(url){ img.src=url;img.style.display="block";ph.style.display="none";img.onerror=()=>{img.style.display="none";ph.style.display="flex";}; }
-  else{ img.style.display="none";ph.style.display="flex"; }
+// ── Galería de fotos del producto (múltiples) ──
+function renderFotosGrid(){
+  const cont=document.getElementById("pFotosGrid");
+  if(!productoImagenesEditor.length){
+    cont.innerHTML=`<div class="img-placeholder" style="width:140px;">Sin fotos todavía</div>`;
+    return;
+  }
+  cont.innerHTML=productoImagenesEditor.map((src,i)=>`
+    <div style="position:relative;width:110px;">
+      <img src="${src}" alt="" style="width:110px;height:110px;object-fit:contain;border:1.5px solid ${i===0?'var(--ml-blue)':'var(--border)'};border-radius:8px;background:#f9f9f9;" onerror="this.style.opacity='0.3'">
+      ${i===0?'<span class="badge badge-blue" style="position:absolute;top:4px;left:4px;font-size:9px;">Portada</span>':`<button type="button" class="btn btn-ghost btn-sm" style="position:absolute;top:2px;left:2px;padding:2px 5px;font-size:10px;" onclick="hacerPortadaFoto(${i})" title="Usar como portada">⭐</button>`}
+      <button type="button" class="btn btn-danger btn-sm" style="position:absolute;top:2px;right:2px;padding:2px 6px;" onclick="quitarFoto(${i})" title="Quitar foto">✕</button>
+    </div>`).join("");
 }
-function cargarImgProd(input){
-  const f=input.files[0]; if(!f)return;
-  const r=new FileReader();
-  r.onload=e=>{ document.getElementById("pImg").value=e.target.result; previewProdImg(); };
-  r.readAsDataURL(f);
+function agregarFotoUrl(){
+  const input=document.getElementById("pFotoUrl");
+  const url=input.value.trim();
+  if(!url) return;
+  productoImagenesEditor.push(url);
+  input.value="";
+  renderFotosGrid();
 }
+function cargarFotosProd(input){
+  const files=Array.from(input.files||[]);
+  if(!files.length) return;
+  let pendientes=files.length;
+  files.forEach(f=>{
+    const r=new FileReader();
+    r.onload=e=>{ productoImagenesEditor.push(e.target.result); pendientes--; if(pendientes===0){ renderFotosGrid(); input.value=""; } };
+    r.readAsDataURL(f);
+  });
+}
+function quitarFoto(i){ productoImagenesEditor.splice(i,1); renderFotosGrid(); }
+function hacerPortadaFoto(i){ const [foto]=productoImagenesEditor.splice(i,1); productoImagenesEditor.unshift(foto); renderFotosGrid(); }
 function calcMargenModal(){
   const costo=parseFloat(document.getElementById("pCosto").value)||0;
   const precio=parseFloat(document.getElementById("pPrecio").value)||0;
@@ -2347,6 +2387,14 @@ function calcMargenModal(){
     el.value=m+"%";
     el.style.color=m>=25?"#16a34a":m>=10?"#ea7000":"#dc2626";
   } else { el.value=""; el.style.color="#0d2259"; }
+
+  const precioTienda=parseFloat(document.getElementById("pPrecioTienda").value)||0;
+  const elT=document.getElementById("pMargenTienda");
+  if(costo&&precioTienda){
+    const mt=((precioTienda-costo)/precioTienda*100).toFixed(1);
+    elT.value=mt+"%";
+    elT.style.color=mt>=25?"#16a34a":mt>=10?"#ea7000":"#dc2626";
+  } else { elT.value=""; elT.style.color="#0d2259"; }
 }
 
 async function guardarProducto(){
@@ -2370,7 +2418,9 @@ async function guardarProducto(){
     stockMin:parseInt(document.getElementById("pStockMin").value)||15,
     stockOn:parseInt(document.getElementById("pStockOn").value),
     ml_item_id:document.getElementById("pMlItemId").value.trim().toUpperCase()||null,
-    img:document.getElementById("pImg").value.trim()||(editandoProdIdx>=0?productos[editandoProdIdx].img:""),
+    img:productoImagenesEditor[0]||"",
+    imagenes:productoImagenesEditor.slice(),
+    descripcion:document.getElementById("pDescripcion").value.trim(),
     tipo,
     componentes:tipo==="combo"?comboComponentesEditor.slice():[],
   };
