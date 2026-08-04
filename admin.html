@@ -1049,6 +1049,7 @@ tr:hover td{background:#fafbfc;}
                   <option value="30">Últimos 30 días</option>
                   <option value="60">Últimos 60 días</option>
                 </select>
+                <button class="btn btn-ghost" onclick="sincronizarFacturacionML()" title="Trae comisión, envío, financiación y retenciones (IVA/IIBB/Ganancias) reales desde la API de Facturación de ML, para las ventas ML que falten">🧾 Sincronizar facturación ML</button>
               </div>
             </div>
             <div class="table-wrap">
@@ -1068,19 +1069,20 @@ tr:hover td{background:#fafbfc;}
     <!-- ========== ANÁLISIS ML ========== -->
     <div id="sec-analisis" class="section">
       <div class="page-header">
-        <div><h2>Análisis MercadoLibre</h2><div class="sub">Comisión y envío reales de ML cuando están sincronizados (✓) — estimado 10% de comisión si no (*) — Impuesto: % estimado configurable (no es un dato real por venta) — Retención/IIBB de liquidaciones: pendiente</div></div>
+        <div><h2>Análisis MercadoLibre</h2><div class="sub">Comisión y envío reales de ML cuando están sincronizados (✓) — estimado 10% de comisión si no (*) — Impuesto/Percepción: % estimado, calculable desde el promedio real de tus ventas ML sincronizadas (botón "📊 Usar retenciones reales")</div></div>
       </div>
       <div style="padding:24px;">
         <div class="card">
           <div class="card-header">
             <h3>Rentabilidad por producto</h3>
             <div style="display:flex;gap:8px;align-items:center;">
-              <label style="font-size:12px;color:var(--text-soft);white-space:nowrap;">Impuesto estimado %:
+              <label style="font-size:12px;color:var(--text-soft);white-space:nowrap;">Impuesto estimado % (IIBB):
                 <input type="number" id="impuestoPctInput" step="0.1" min="0" style="width:64px;padding:5px 8px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;margin-left:4px;" onchange="guardarImpuestoPct()">
               </label>
-              <label style="font-size:12px;color:var(--text-soft);white-space:nowrap;">Percepción estimada %:
+              <label style="font-size:12px;color:var(--text-soft);white-space:nowrap;">Percepción estimada % (IVA+Ganancias):
                 <input type="number" id="percepcionPctInput" step="0.1" min="0" style="width:64px;padding:5px 8px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;margin-left:4px;" onchange="guardarPercepcionPct()">
               </label>
+              <button class="btn btn-ghost" onclick="aplicarRetencionesRealesAnalisis()" title="Calcula el % promedio real de IIBB y de IVA+Ganancias a partir de tus ventas ML con facturación sincronizada, y lo carga en los campos de al lado">📊 Usar retenciones reales</button>
               <button class="btn btn-ghost" onclick="sincronizarFeesML()">🔄 Sincronizar comisiones ML</button>
               <select id="analisisFiltro" onchange="renderAnalisis()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
                 <option value="">Todos</option>
@@ -2848,6 +2850,27 @@ async function guardarPercepcionPct(){
   renderAnalisis();
   toast("Percepción estimada actualizada a "+val+"%","ok");
 }
+// Calcula el % promedio real de IIBB y de (IVA+Ganancias) sobre el ingreso bruto,
+// usando las ventas ML que ya tienen facturación sincronizada (ver botón "🧾 Sincronizar facturación ML" en Historial),
+// y lo aplica como estimación a los dos campos configurables de Análisis ML.
+async function aplicarRetencionesRealesAnalisis(){
+  if(checkViewer("Configurar impuesto/percepción estimados")) return;
+  const sync=ventas.filter(v=>v.canal==='ML' && v.billing_synced);
+  if(!sync.length){ toast("Todavía no hay ventas ML con facturación sincronizada. Andá a Historial → 🧾 Sincronizar facturación ML.","err",6000); return; }
+  const ingresoTotal=sync.reduce((a,v)=>a+(Number(v.ingresoBruto)||v.cantidad*v.precio||0),0);
+  if(!ingresoTotal){ toast("No se pudo calcular (ingreso bruto en cero).","err"); return; }
+  const iibbTotal=sync.reduce((a,v)=>a+(Number(v.retencion_iibb)||0),0);
+  const otrasTotal=sync.reduce((a,v)=>a+(Number(v.retencion_iva)||0)+(Number(v.retencion_ganancias)||0)+(Number(v.retencion_otras)||0),0);
+  const iibbPct=Math.round((iibbTotal/ingresoTotal*100)*100)/100;
+  const otrasPct=Math.round((otrasTotal/ingresoTotal*100)*100)/100;
+  document.getElementById("impuestoPctInput").value=iibbPct;
+  document.getElementById("percepcionPctInput").value=otrasPct;
+  appConfig.impuesto_pct=iibbPct; appConfig.percepcion_pct=otrasPct;
+  await sbGuardar("config",{key:"impuesto_pct", value:iibbPct}).catch(()=>{});
+  await sbGuardar("config",{key:"percepcion_pct", value:otrasPct}).catch(()=>{});
+  renderAnalisis();
+  toast(`Calculado sobre ${sync.length} venta(s) sincronizada(s): IIBB real ${iibbPct}% · IVA+Ganancias real ${otrasPct}%`,"ok",6000);
+}
 
 // ── Sincronizar comisiones reales desde ML (/items/:id/fees) ──
 async function sincronizarFeesML(){
@@ -3721,6 +3744,10 @@ function renderVentas(){
 
   tbody.innerHTML=lista.map((v,i)=>{
     const realIdx=ventas.indexOf(v);
+    const tieneReal=!!v.billing_synced;
+    const tooltipReal=tieneReal
+      ? `Datos reales de facturación ML:\nComisión: $${fmt(v.comision_real||0)}\nEnvío: $${fmt(v.envio_real||0)}\nFinanciación: $${fmt(v.financiacion||0)}\nRetenciones (IVA+IIBB+Ganancias): $${fmt(v.retencion_total||0)}`
+      : 'Lo que quedó después de comisiones ML (estimado — sincronizá facturación para el dato real)';
     return `<tr>
       <td>${v.fecha}</td>
       <td><span class="badge ${v.canal==='ML'?'badge-blue':'badge-green'}">${v.canal==='ML'?'🛒 ML':'🏪 Tienda'}</span></td>
@@ -3728,7 +3755,7 @@ function renderVentas(){
       <td style="max-width:180px;">${esc(v.producto||'')}</td>
       <td class="num">${v.cantidad}</td>
       <td class="num">$${fmt(v.precio)}</td>
-      <td class="num num-pos" style="font-weight:700;" title="Lo que quedó después de comisiones ML">$${fmt(v.totalNeto||v.ingresoBruto||v.cantidad*v.precio)}</td>
+      <td class="num num-pos" style="font-weight:700;white-space:pre-line;" title="${esc(tooltipReal)}">$${fmt(v.totalNeto||v.ingresoBruto||v.cantidad*v.precio)}${tieneReal?' 🧾':' *'}</td>
       <td style="font-size:12px;color:var(--text-soft);">${esc(v.obs||'')}</td>
       <td>${esAdmin()?`<button class="btn btn-danger btn-sm" onclick="eliminarVenta(${realIdx})">✕</button>`:""}</td>
     </tr>`;
@@ -3739,6 +3766,8 @@ function renderVentas(){
   const totalTienda=ventas.filter(v=>v.canal==='Tienda').reduce((a,v)=>a+v.cantidad*v.precio,0);
   const unidML=ventas.filter(v=>v.canal==='ML').reduce((a,v)=>a+v.cantidad,0);
   const unidTienda=ventas.filter(v=>v.canal==='Tienda').reduce((a,v)=>a+v.cantidad,0);
+  const ventasMLSync=ventas.filter(v=>v.canal==='ML'&&v.billing_synced);
+  const retencionesTotales=ventasMLSync.reduce((a,v)=>a+(v.retencion_total||0),0);
   document.getElementById('ventasStats').innerHTML=`
     <div class="stat-card"><div class="label">Ingreso neto ML</div><div class="value blue">$${fmt(totalML)}</div></div>
     <div class="stat-card"><div class="label">Unid. vendidas ML</div><div class="value">${unidML}</div></div>
@@ -3746,6 +3775,7 @@ function renderVentas(){
     <div class="stat-card"><div class="label">Unid. vendidas Tienda</div><div class="value">${unidTienda}</div></div>
     <div class="stat-card"><div class="label">Total combinado</div><div class="value">$${fmt(totalML+totalTienda)}</div></div>
     <div class="stat-card"><div class="label">Transacciones</div><div class="value">${ventas.length}</div></div>
+    <div class="stat-card"><div class="label">Retenciones ML reales (${ventasMLSync.length} sync)</div><div class="value" style="color:var(--orange);">$${fmt(retencionesTotales)}</div></div>
   `;
 }
 
@@ -5029,6 +5059,119 @@ async function manejarCallbackML(){
     toast("Error: "+e.message,"err");
     mostrarCargando(false);
   }
+}
+
+// ── Facturación real ML (comisión, envío, financiación y retenciones IVA/IIBB/Ganancias) ──
+// Usa GET /billing/integration/group/ML/order/details?order_ids=...&seller_id=... (hasta 60 order_ids por request)
+function _clasificarRetencion(mov){
+  const e=(mov.mov_financial_entity||"").toLowerCase();
+  if(e.includes("iva")) return "iva";
+  if(e.includes("iibb")||e.includes("ingresos_brutos")||e.includes("ing_brutos")) return "iibb";
+  if(e.includes("ganancia")||e==="isr") return "ganancias";
+  return "otras";
+}
+async function sincronizarFacturacionML(){
+  if(checkViewer("Sincronizar facturación ML")) return;
+  if(!mlToken){ await verificarTokenML(); }
+  if(!mlToken){ toast("Primero conectá con MercadoLibre.","err"); return; }
+  if(!mlUserId){ toast("No se detectó tu usuario ML. Reconectá en la pestaña MercadoLibre API.","err"); return; }
+
+  const pendientes = ventas.filter(v=>v.canal==='ML' && v.nroVenta && !v.billing_synced);
+  if(!pendientes.length){ toast("No hay ventas ML pendientes de sincronizar facturación.","ok"); return; }
+
+  async function proxyGet(path){
+    const r=await fetch(SB_URL+"/functions/v1/ml-oauth", {
+      method:"POST",
+      headers:{"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY},
+      body:JSON.stringify({grant_type:"proxy", path, access_token:mlToken})
+    });
+    const data=await r.json();
+    return {ok:r.ok, data};
+  }
+
+  mostrarCargando(true);
+  let ok=0, fail=0, sinDatos=0;
+  const LOTE=60;
+  for(let i=0;i<pendientes.length;i+=LOTE){
+    const lote=pendientes.slice(i,i+LOTE);
+    const ids=[...new Set(lote.map(v=>String(v.nroVenta)))].join(",");
+    try{
+      const res=await proxyGet("/billing/integration/group/ML/order/details?order_ids="+encodeURIComponent(ids)+"&seller_id="+mlUserId);
+      if(!res.ok || !res.data || res.data.error || !Array.isArray(res.data.results)){
+        fail += lote.length;
+        continue;
+      }
+      for(const r of res.data.results){
+        const vsDeEstaOrden = ventas.filter(v=>String(v.nroVenta)===String(r.order_id) && v.canal==='ML');
+        if(!vsDeEstaOrden.length) continue;
+
+        // Cargos (CHARGE resta, BONUS resta el descuento -> menor costo)
+        let cvfv=0,cvff=0,cvfn=0,cxd=0,cff=0,bonus=0;
+        for(const d of (r.details||[])){
+          const ci=d.charge_info||{};
+          const monto=Number(ci.detail_amount)||0;
+          if(ci.detail_type==="CHARGE"){
+            if(ci.detail_sub_type==="CVFV") cvfv+=monto;
+            else if(ci.detail_sub_type==="CVFF") cvff+=monto;
+            else if(ci.detail_sub_type==="CVFN") cvfn+=monto;
+            else if(ci.detail_sub_type==="CXD") cxd+=monto;
+            else if(ci.detail_sub_type==="CFF") cff+=monto;
+          } else if(ci.detail_type==="BONUS"){
+            bonus+=monto;
+          }
+        }
+        const comisionReal=cvfv+cvff;
+        const envioReal=cxd+cff;
+        const financiacion=cvfn;
+
+        // Retenciones (de payment_info[].tax_details, mov_detail === "tax_withholding")
+        let retIva=0, retIibb=0, retGan=0, retOtras=0;
+        for(const pi of (r.payment_info||[])){
+          for(const td of (pi.tax_details||[])){
+            if(td.mov_detail!=="tax_withholding") continue;
+            const monto=(Number(td.original_amount)||0)-(Number(td.refunded_amount)||0);
+            const cat=_clasificarRetencion(td);
+            if(cat==="iva") retIva+=monto;
+            else if(cat==="iibb") retIibb+=monto;
+            else if(cat==="ganancias") retGan+=monto;
+            else retOtras+=monto;
+          }
+        }
+        const retTotal=retIva+retIibb+retGan+retOtras;
+
+        if(!comisionReal && !envioReal && !retTotal && !bonus){ sinDatos+=vsDeEstaOrden.length; continue; }
+
+        for(const v of vsDeEstaOrden){
+          // Si la orden tiene varias líneas (carrito), repartimos los cargos proporcional a la cantidad de esta línea sobre el total de la orden
+          const cantTotalOrden=vsDeEstaOrden.reduce((a,x)=>a+(Number(x.cantidad)||0),0)||1;
+          const prop=(Number(v.cantidad)||0)/cantTotalOrden;
+          const upd={
+            comision_real: Math.round(comisionReal*prop*100)/100,
+            envio_real: Math.round(envioReal*prop*100)/100,
+            financiacion: Math.round(financiacion*prop*100)/100,
+            retencion_iva: Math.round(retIva*prop*100)/100,
+            retencion_iibb: Math.round(retIibb*prop*100)/100,
+            retencion_ganancias: Math.round(retGan*prop*100)/100,
+            retencion_otras: Math.round(retOtras*prop*100)/100,
+            retencion_total: Math.round(retTotal*prop*100)/100,
+            billing_synced: true,
+          };
+          const bonusProp=Math.round(bonus*prop*100)/100;
+          upd.totalNeto = Math.round(((v.ingresoBruto||v.cantidad*v.precio) - upd.comision_real - upd.envio_real - upd.financiacion - upd.retencion_total + bonusProp)*100)/100;
+          Object.assign(v, upd);
+          if(v.id){ try{ await sbUpdate("ventas","id=eq."+v.id, upd); ok++; }catch(e){ fail++; } }
+        }
+      }
+    }catch(e){ fail+=lote.length; }
+    await new Promise(res=>setTimeout(res,300)); // evitar 429 entre lotes
+  }
+  mostrarCargando(false);
+  renderVentas();
+  const partes=[];
+  if(ok) partes.push(`${ok} venta${ok!==1?'s':''} actualizada${ok!==1?'s':''} con datos reales`);
+  if(sinDatos) partes.push(`${sinDatos} sin cargos/retenciones informados por ML`);
+  if(fail) partes.push(`${fail} con error`);
+  toast((ok?'🧾 ':'⚠️ ')+(partes.join(' · ')||'Nada para sincronizar'),'ok',6000);
 }
 
 // ── Sincronizar ventas desde ML API ──
