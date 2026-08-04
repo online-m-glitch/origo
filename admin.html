@@ -1672,6 +1672,19 @@ tr:hover td{background:#fafbfc;}
   </div>
 </div>
 
+<!-- Modal debug JSON facturación ML -->
+<div class="overlay" id="modalDebugJson">
+  <div class="modal" style="max-width:720px;">
+    <h3>🔍 JSON crudo — Facturación ML</h3>
+    <div style="font-size:12px;color:var(--text-soft);margin-bottom:8px;">Respuesta completa de <code>/billing/integration/group/ML/order/details</code> para esta orden. Útil para revisar cómo vienen mapeadas las retenciones.</div>
+    <pre id="debugJsonContent" style="background:#0d1117;color:#c9d1d9;padding:12px;border-radius:8px;font-size:11px;max-height:420px;overflow:auto;white-space:pre-wrap;word-break:break-all;"></pre>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="cerrarModalDebugJson()">Cerrar</button>
+      <button class="btn btn-success" onclick="copiarJsonFacturacion()">📋 Copiar</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -3757,7 +3770,11 @@ function renderVentas(){
       <td class="num">$${fmt(v.precio)}</td>
       <td class="num num-pos" style="font-weight:700;white-space:pre-line;" title="${esc(tooltipReal)}">$${fmt(v.totalNeto||v.ingresoBruto||v.cantidad*v.precio)}${tieneReal?' 🧾':' *'}</td>
       <td style="font-size:12px;color:var(--text-soft);">${esc(v.obs||'')}</td>
-      <td>${esAdmin()?`<button class="btn btn-danger btn-sm" onclick="eliminarVenta(${realIdx})">✕</button>`:""}</td>
+      <td style="display:flex;gap:4px;">
+        ${(v.canal==='ML'&&v.nroVenta)?`<button class="btn btn-ghost btn-sm" onclick="reSincronizarVentaPuntual(${realIdx})" title="Forzar re-sincronización de facturación para esta venta">🔄</button>`:''}
+        ${tieneReal?`<button class="btn btn-ghost btn-sm" onclick="verJsonFacturacion(${realIdx})" title="Ver JSON crudo de facturación (debug)">🔍</button>`:''}
+        ${esAdmin()?`<button class="btn btn-danger btn-sm" onclick="eliminarVenta(${realIdx})">✕</button>`:""}
+      </td>
     </tr>`;
   }).join('');
 
@@ -5063,21 +5080,76 @@ async function manejarCallbackML(){
 
 // ── Facturación real ML (comisión, envío, financiación y retenciones IVA/IIBB/Ganancias) ──
 // Usa GET /billing/integration/group/ML/order/details?order_ids=...&seller_id=... (hasta 60 order_ids por request)
-function _clasificarRetencion(mov){
-  const e=(mov.mov_financial_entity||"").toLowerCase();
-  if(e.includes("iva")) return "iva";
-  if(e.includes("iibb")||e.includes("ingresos_brutos")||e.includes("ing_brutos")) return "iibb";
+function _clasificarRetencion(texto){
+  const e=(texto||"").toLowerCase();
+  if(e.includes("ingresos brutos")||e.includes("iibb")||e.includes("ing_brutos")||e.includes("ingresos_brutos")) return "iibb";
   if(e.includes("ganancia")||e==="isr") return "ganancias";
+  if(e.includes("iva")) return "iva";
   return "otras";
 }
-async function sincronizarFacturacionML(){
+// Procesa un resultado de /billing/integration/group/ML/order/details para UNA orden y devuelve el desglose calculado + el JSON crudo
+function _parsearBillingOrden(r){
+  let cvfv=0,cvff=0,cvfn=0,cxd=0,cff=0,bonus=0;
+  for(const d of (r.details||[])){
+    const ci=d.charge_info||{};
+    const monto=Number(ci.detail_amount)||0;
+    if(ci.detail_type==="CHARGE"){
+      if(ci.detail_sub_type==="CVFV") cvfv+=monto;
+      else if(ci.detail_sub_type==="CVFF") cvff+=monto;
+      else if(ci.detail_sub_type==="CVFN") cvfn+=monto;
+      else if(ci.detail_sub_type==="CXD") cxd+=monto;
+      else if(ci.detail_sub_type==="CFF") cff+=monto;
+      else {
+        // sub_type desconocido: lo tratamos como posible retención/percepción y lo clasificamos por texto
+        const cat=_clasificarRetencion((ci.transaction_detail||"")+" "+(ci.detail_sub_type||""));
+        d._catFallback=cat; d._montoFallback=monto;
+      }
+    } else if(ci.detail_type==="BONUS"){
+      bonus+=monto;
+    } else {
+      // detail_type que no es CHARGE ni BONUS (posible TAX/RETENTION/PERCEPTION según la cuenta)
+      const cat=_clasificarRetencion((ci.transaction_detail||"")+" "+(ci.detail_sub_type||"")+" "+(ci.detail_type||""));
+      d._catFallback=cat; d._montoFallback=monto;
+    }
+  }
+  let retIva=0, retIibb=0, retGan=0, retOtras=0;
+  // 1) tax_details de cada pago — sumamos TODOS (no solo mov_detail==="tax_withholding", por si ML usa otro valor)
+  for(const pi of (r.payment_info||[])){
+    for(const td of (pi.tax_details||[])){
+      const monto=(Number(td.original_amount)||0)-(Number(td.refunded_amount)||0);
+      if(!monto) continue;
+      const cat=_clasificarRetencion((td.mov_financial_entity||"")+" "+(td.mov_detail||"")+" "+(td.tax_id||""));
+      if(cat==="iva") retIva+=monto;
+      else if(cat==="iibb") retIibb+=monto;
+      else if(cat==="ganancias") retGan+=monto;
+      else retOtras+=monto;
+    }
+  }
+  // 2) cargos de "details[]" que no matchearon como CHARGE conocido ni BONUS (fallback)
+  for(const d of (r.details||[])){
+    if(d._catFallback){
+      if(d._catFallback==="iva") retIva+=d._montoFallback;
+      else if(d._catFallback==="iibb") retIibb+=d._montoFallback;
+      else if(d._catFallback==="ganancias") retGan+=d._montoFallback;
+      else retOtras+=d._montoFallback;
+    }
+  }
+  return {
+    comisionReal:cvfv+cvff, envioReal:cxd+cff, financiacion:cvfn, bonus,
+    retIva, retIibb, retGan, retOtras, retTotal:retIva+retIibb+retGan+retOtras,
+  };
+}
+async function sincronizarFacturacionML(soloOrderIds){
   if(checkViewer("Sincronizar facturación ML")) return;
   if(!mlToken){ await verificarTokenML(); }
   if(!mlToken){ toast("Primero conectá con MercadoLibre.","err"); return; }
   if(!mlUserId){ toast("No se detectó tu usuario ML. Reconectá en la pestaña MercadoLibre API.","err"); return; }
 
-  const pendientes = ventas.filter(v=>v.canal==='ML' && v.nroVenta && !v.billing_synced);
-  if(!pendientes.length){ toast("No hay ventas ML pendientes de sincronizar facturación.","ok"); return; }
+  const forzado=Array.isArray(soloOrderIds)&&soloOrderIds.length>0;
+  const pendientes = forzado
+    ? ventas.filter(v=>v.canal==='ML' && v.nroVenta && soloOrderIds.includes(String(v.nroVenta)))
+    : ventas.filter(v=>v.canal==='ML' && v.nroVenta && !v.billing_synced);
+  if(!pendientes.length){ toast(forzado?"No se encontró esa venta.":"No hay ventas ML pendientes de sincronizar facturación.","ok"); return; }
 
   async function proxyGet(path){
     const r=await fetch(SB_URL+"/functions/v1/ml-oauth", {
@@ -5098,6 +5170,7 @@ async function sincronizarFacturacionML(){
     try{
       const res=await proxyGet("/billing/integration/group/ML/order/details?order_ids="+encodeURIComponent(ids)+"&seller_id="+mlUserId);
       if(!res.ok || !res.data || res.data.error || !Array.isArray(res.data.results)){
+        console.warn("Facturación ML — respuesta inesperada:", res.data);
         fail += lote.length;
         continue;
       }
@@ -5105,64 +5178,34 @@ async function sincronizarFacturacionML(){
         const vsDeEstaOrden = ventas.filter(v=>String(v.nroVenta)===String(r.order_id) && v.canal==='ML');
         if(!vsDeEstaOrden.length) continue;
 
-        // Cargos (CHARGE resta, BONUS resta el descuento -> menor costo)
-        let cvfv=0,cvff=0,cvfn=0,cxd=0,cff=0,bonus=0;
-        for(const d of (r.details||[])){
-          const ci=d.charge_info||{};
-          const monto=Number(ci.detail_amount)||0;
-          if(ci.detail_type==="CHARGE"){
-            if(ci.detail_sub_type==="CVFV") cvfv+=monto;
-            else if(ci.detail_sub_type==="CVFF") cvff+=monto;
-            else if(ci.detail_sub_type==="CVFN") cvfn+=monto;
-            else if(ci.detail_sub_type==="CXD") cxd+=monto;
-            else if(ci.detail_sub_type==="CFF") cff+=monto;
-          } else if(ci.detail_type==="BONUS"){
-            bonus+=monto;
-          }
-        }
-        const comisionReal=cvfv+cvff;
-        const envioReal=cxd+cff;
-        const financiacion=cvfn;
+        const parsed=_parsearBillingOrden(r);
+        console.log("Facturación ML — orden "+r.order_id, {parsed, raw:r});
 
-        // Retenciones (de payment_info[].tax_details, mov_detail === "tax_withholding")
-        let retIva=0, retIibb=0, retGan=0, retOtras=0;
-        for(const pi of (r.payment_info||[])){
-          for(const td of (pi.tax_details||[])){
-            if(td.mov_detail!=="tax_withholding") continue;
-            const monto=(Number(td.original_amount)||0)-(Number(td.refunded_amount)||0);
-            const cat=_clasificarRetencion(td);
-            if(cat==="iva") retIva+=monto;
-            else if(cat==="iibb") retIibb+=monto;
-            else if(cat==="ganancias") retGan+=monto;
-            else retOtras+=monto;
-          }
-        }
-        const retTotal=retIva+retIibb+retGan+retOtras;
+        if(!parsed.comisionReal && !parsed.envioReal && !parsed.retTotal && !parsed.bonus){ sinDatos+=vsDeEstaOrden.length; continue; }
 
-        if(!comisionReal && !envioReal && !retTotal && !bonus){ sinDatos+=vsDeEstaOrden.length; continue; }
-
+        const cantTotalOrden=vsDeEstaOrden.reduce((a,x)=>a+(Number(x.cantidad)||0),0)||1;
         for(const v of vsDeEstaOrden){
           // Si la orden tiene varias líneas (carrito), repartimos los cargos proporcional a la cantidad de esta línea sobre el total de la orden
-          const cantTotalOrden=vsDeEstaOrden.reduce((a,x)=>a+(Number(x.cantidad)||0),0)||1;
           const prop=(Number(v.cantidad)||0)/cantTotalOrden;
           const upd={
-            comision_real: Math.round(comisionReal*prop*100)/100,
-            envio_real: Math.round(envioReal*prop*100)/100,
-            financiacion: Math.round(financiacion*prop*100)/100,
-            retencion_iva: Math.round(retIva*prop*100)/100,
-            retencion_iibb: Math.round(retIibb*prop*100)/100,
-            retencion_ganancias: Math.round(retGan*prop*100)/100,
-            retencion_otras: Math.round(retOtras*prop*100)/100,
-            retencion_total: Math.round(retTotal*prop*100)/100,
+            comision_real: Math.round(parsed.comisionReal*prop*100)/100,
+            envio_real: Math.round(parsed.envioReal*prop*100)/100,
+            financiacion: Math.round(parsed.financiacion*prop*100)/100,
+            retencion_iva: Math.round(parsed.retIva*prop*100)/100,
+            retencion_iibb: Math.round(parsed.retIibb*prop*100)/100,
+            retencion_ganancias: Math.round(parsed.retGan*prop*100)/100,
+            retencion_otras: Math.round(parsed.retOtras*prop*100)/100,
+            retencion_total: Math.round(parsed.retTotal*prop*100)/100,
             billing_synced: true,
+            raw_billing: r,
           };
-          const bonusProp=Math.round(bonus*prop*100)/100;
+          const bonusProp=Math.round(parsed.bonus*prop*100)/100;
           upd.totalNeto = Math.round(((v.ingresoBruto||v.cantidad*v.precio) - upd.comision_real - upd.envio_real - upd.financiacion - upd.retencion_total + bonusProp)*100)/100;
           Object.assign(v, upd);
           if(v.id){ try{ await sbUpdate("ventas","id=eq."+v.id, upd); ok++; }catch(e){ fail++; } }
         }
       }
-    }catch(e){ fail+=lote.length; }
+    }catch(e){ console.error("Error sincronizando facturación:",e); fail+=lote.length; }
     await new Promise(res=>setTimeout(res,300)); // evitar 429 entre lotes
   }
   mostrarCargando(false);
@@ -5171,7 +5214,24 @@ async function sincronizarFacturacionML(){
   if(ok) partes.push(`${ok} venta${ok!==1?'s':''} actualizada${ok!==1?'s':''} con datos reales`);
   if(sinDatos) partes.push(`${sinDatos} sin cargos/retenciones informados por ML`);
   if(fail) partes.push(`${fail} con error`);
-  toast((ok?'🧾 ':'⚠️ ')+(partes.join(' · ')||'Nada para sincronizar'),'ok',6000);
+  toast((ok?'🧾 ':'⚠️ ')+(partes.join(' · ')||'Nada para sincronizar')+' · mirá la consola (F12) para el detalle crudo','ok',7000);
+}
+// Fuerza la re-sincronización de UNA venta puntual (ignora el flag billing_synced) — útil para depurar
+async function reSincronizarVentaPuntual(idx){
+  const v=ventas[idx];
+  if(!v || v.canal!=='ML' || !v.nroVenta){ toast("Esta venta no es de ML o no tiene número de orden.","err"); return; }
+  await sincronizarFacturacionML([String(v.nroVenta)]);
+}
+function verJsonFacturacion(idx){
+  const v=ventas[idx];
+  if(!v || !v.raw_billing){ toast("Todavía no hay JSON crudo guardado para esta venta. Sincronizá facturación primero.","err"); return; }
+  document.getElementById("debugJsonContent").textContent=JSON.stringify(v.raw_billing, null, 2);
+  document.getElementById("modalDebugJson").classList.add("show");
+}
+function cerrarModalDebugJson(){ document.getElementById("modalDebugJson").classList.remove("show"); }
+function copiarJsonFacturacion(){
+  const texto=document.getElementById("debugJsonContent").textContent;
+  navigator.clipboard.writeText(texto).then(()=>toast("JSON copiado al portapapeles ✅","ok")).catch(()=>toast("No se pudo copiar. Seleccioná el texto manualmente.","err"));
 }
 
 // ── Sincronizar ventas desde ML API ──
