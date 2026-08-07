@@ -1127,7 +1127,7 @@ tr:hover td{background:#fafbfc;}
             <div style="font-size:11px;color:var(--text-soft);padding:8px 16px;border-bottom:1px solid var(--border);">Costo = el costo del producto en el momento en que se registró la venta (queda fijo, no cambia si después actualizás el costo en el Catálogo) — marcado con 🔒. Ventas cargadas antes de este cambio usan el costo actual del Catálogo como respaldo, sin el candado. Recibí ($) = neto real cuando la venta está sincronizada con la API de ML; estimado (bruto) si no. Filas sin costo cargado no suman a Ganancia/Margen.</div>
             <div class="table-wrap">
               <table>
-                <thead><tr><th>Fecha</th><th>Canal</th><th>SKU</th><th>Producto</th><th>Cant.</th><th>Ingreso ($)</th><th>Costo unit. ($)</th><th>Costo total ($)</th><th>Recibí ($)</th><th>Ganancia ($)</th><th>Margen %</th></tr></thead>
+                <thead><tr><th>Fecha</th><th>Canal</th><th>SKU</th><th>Producto</th><th>Cant.</th><th>Ingreso ($)</th><th>Costo unit. ($)</th><th>Costo total ($)</th><th>Recibí ($)</th><th>Ganancia ($)</th><th>Margen %</th><th>Nro. Venta</th></tr></thead>
                 <tbody id="rentBody"></tbody>
               </table>
               <div class="empty" id="rentEmpty" style="display:none;"><div class="icon">🧮</div><p>Sin ventas en el período seleccionado.</p></div>
@@ -4439,6 +4439,7 @@ function renderRentabilidad(){
       <td class="num num-pos" style="font-weight:700;">$${fmt(recibi)}</td>
       <td class="num ${ganancia!==null&&ganancia<0?'num-neg':''}" style="font-weight:700;">${tieneCosto?'$'+fmt(ganancia):'—'}</td>
       <td class="num ${margenCls}">${margen!==null?margen.toFixed(0)+'%':'—'}</td>
+      <td style="font-size:11px;color:var(--text-soft);">${esc(v.nroVenta||'')}</td>
     </tr>`;
   }).join("");
   renderPaginador('rentPaginacion', filas.length, porPagina, rentPagina, 'irAPaginaRentabilidad');
