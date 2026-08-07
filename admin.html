@@ -1081,6 +1081,7 @@ tr:hover td{background:#fafbfc;}
                   <input type="date" id="vFechaHasta" onchange="renderVentas()" style="padding:6px 8px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
                 </div>
                 <button class="btn btn-ghost" onclick="sincronizarFacturacionML()" title="Trae comisión, envío, financiación y retenciones (IVA/IIBB/Ganancias) reales desde la API de Facturación de ML, para las ventas ML que falten">🧾 Sincronizar facturación ML</button>
+                <button class="btn btn-ghost" onclick="revisarDuplicadosML()" title="Busca ventas ML repetidas (mismo Nro. de Venta) y las limpia, corrigiendo también el stock">🧹 Revisar duplicados</button>
               </div>
             </div>
             <div class="table-wrap">
@@ -4533,6 +4534,71 @@ async function revertirComponentesCombo(movId){
   for(const cm of paraBorrar){ if(cm.id) await sbGuardar("deleteMovimiento",cm.id); }
   if(paraBorrar.length) movimientos=movimientos.filter(x=>!(x.obs&&x.obs.indexOf(tag)===0));
   return paraBorrar.length;
+}
+// ── Detectar y limpiar ventas ML duplicadas (mismo Nro. de Venta + SKU + cantidad + precio) ──
+// Puede pasar si se reimportó el mismo período más de una vez mientras la lista de ventas en memoria
+// estaba incompleta (antes de arreglar el límite de filas al cargar datos).
+function detectarVentasDuplicadas(){
+  const grupos = {};
+  for(const v of ventas){
+    if(v.canal!=='ML' || !v.nroVenta) continue;
+    const key = v.nroVenta+'|'+(v.sku||'').toUpperCase()+'|'+v.cantidad+'|'+v.precio;
+    (grupos[key]=grupos[key]||[]).push(v);
+  }
+  const duplicados = Object.values(grupos).filter(g=>g.length>1);
+  return duplicados;
+}
+async function revisarDuplicadosML(){
+  const grupos = detectarVentasDuplicadas();
+  if(!grupos.length){ toast("No se encontraron ventas ML duplicadas ✅","ok"); return; }
+  const totalExtra = grupos.reduce((a,g)=>a+(g.length-1),0);
+  const detalle = grupos.slice(0,15).map(g=>
+    `• Nro. ${g[0].nroVenta} — ${esc(g[0].sku)} — repetida ${g.length} veces`
+  ).join('<br>');
+  document.getElementById('confirmBtn').textContent = 'Eliminar duplicados';
+  document.getElementById('confirmMsg').innerHTML =
+    `Se encontraron <strong>${grupos.length} venta(s)</strong> duplicadas (${totalExtra} fila(s) de más en total).<br><br>`+
+    `${detalle}${grupos.length>15?'<br>… y '+(grupos.length-15)+' más':''}<br><br>`+
+    `Se va a conservar 1 copia de cada una (la más completa) y eliminar el resto — incluyendo los movimientos de stock asociados, para corregir también el stock Full ML. Esta acción no se puede deshacer.`;
+  confirmCb = async()=>{ await limpiarVentasDuplicadas(grupos); };
+  document.getElementById('modalConfirm').classList.add('show');
+}
+async function limpiarVentasDuplicadas(grupos){
+  mostrarCargando(true);
+  let ventasEliminadas=0, movsEliminados=0, errores=0;
+  for(const grupo of grupos){
+    // Nos quedamos con la copia más "completa": la que tiene facturación sincronizada, o si no, la más vieja (id menor)
+    const ordenado = grupo.slice().sort((a,b)=>{
+      if(!!b.billing_synced!==!!a.billing_synced) return (b.billing_synced?1:0)-(a.billing_synced?1:0);
+      return (a.id||0)-(b.id||0);
+    });
+    const conservar = ordenado[0];
+    const sobrantes = ordenado.slice(1);
+    for(const v of sobrantes){
+      try{
+        if(v.id) await sbGuardar("deleteVenta", v.id);
+        ventas.splice(ventas.indexOf(v),1);
+        ventasEliminadas++;
+      }catch(e){ errores++; continue; }
+      // Buscar y eliminar UN movimiento "Venta" que referencie este mismo Nro. de Venta + SKU (para no duplicar el descuento de stock)
+      const tagOrden = '#'+v.nroVenta;
+      const movIdx = movimientos.findIndex(m=>
+        m.tipo==='Venta' && m.origen==='ML' && (m.sku||'').toUpperCase()===(v.sku||'').toUpperCase() &&
+        m.cantidad===v.cantidad && (m.obs||'').includes(tagOrden)
+      );
+      if(movIdx>=0){
+        const m = movimientos[movIdx];
+        try{
+          if(m.id) await sbGuardar("deleteMovimiento", m.id);
+          movimientos.splice(movIdx,1);
+          movsEliminados++;
+        }catch(e){ /* seguimos igual */ }
+      }
+    }
+  }
+  mostrarCargando(false);
+  renderVentas(); renderVentasML(); renderPanel(); renderStock(); renderAlertas(); renderMovimientos();
+  toast(`🧹 Limpieza completa: ${ventasEliminadas} venta(s) duplicada(s) eliminada(s), ${movsEliminados} movimiento(s) de stock corregido(s)${errores?` (${errores} con error)`:''}.`,'ok',7000);
 }
 function eliminarVenta(idx){
   const v=ventas[idx];
