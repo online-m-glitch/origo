@@ -3991,17 +3991,18 @@ async function confirmarImportML(){
     });
   }
 
-  let ok=0;
+  let ok=0, errorLotes=0;
+  const erroresDetalle=[];
   if(vDatas.length){
     mostrarCargando(true);
     const CHUNK=300;
     const totalLotes=Math.ceil(vDatas.length/CHUNK);
-    try{
-      for(let i=0;i<vDatas.length;i+=CHUNK){
-        const loteActual=Math.floor(i/CHUNK)+1;
-        toast(`Importando lote ${loteActual}/${totalLotes}…`,'ok',60000);
-        const vChunk=vDatas.slice(i,i+CHUNK);
-        const mChunk=mDatas.slice(i,i+CHUNK);
+    for(let i=0;i<vDatas.length;i+=CHUNK){
+      const loteActual=Math.floor(i/CHUNK)+1;
+      toast(`Importando lote ${loteActual}/${totalLotes}…`,'ok',60000);
+      const vChunk=vDatas.slice(i,i+CHUNK);
+      const mChunk=mDatas.slice(i,i+CHUNK);
+      try{
         const [svs, sms]=await Promise.all([
           sbInsertBulk('ventas', vChunk, CHUNK),
           sbInsertBulk('movimientos', mChunk, CHUNK)
@@ -4009,12 +4010,22 @@ async function confirmarImportML(){
         svs.forEach((sv,idx)=>ventas.unshift(Object.assign({},vChunk[idx],sv||{})));
         sms.forEach((sm,idx)=>movimientos.unshift(Object.assign({},mChunk[idx],sm||{})));
         ok+=svs.length;
+      }catch(e){
+        // Un lote con un dato problemático no debe frenar los lotes siguientes.
+        // Reintentamos ese lote de a una fila, para salvar las que sí son válidas y detectar cuál es la que falla.
+        console.error(`Lote ${loteActual}/${totalLotes} falló en bloque, reintentando fila por fila:`, e.message);
+        for(let j=0;j<vChunk.length;j++){
+          try{
+            const sv=await sbGuardar('venta', vChunk[j]); ventas.unshift(Object.assign({},vChunk[j],sv||{}));
+            const sm=await sbGuardar('movimiento', mChunk[j]); movimientos.unshift(Object.assign({},mChunk[j],sm||{}));
+            ok++;
+          }catch(e2){
+            errorLotes++;
+            if(erroresDetalle.length<5) erroresDetalle.push(`SKU ${vChunk[j].sku} (venta #${vChunk[j].nroVenta}): ${e2.message}`);
+            console.error('Fila rechazada:', vChunk[j], e2.message);
+          }
+        }
       }
-    }catch(e){
-      mostrarCargando(false);
-      toast('Error importando: '+e.message,'err',8000);
-      renderVentas(); renderPanel(); renderStock(); renderAlertas(); renderMovimientos();
-      return;
     }
     mostrarCargando(false);
   }
@@ -4025,7 +4036,9 @@ async function confirmarImportML(){
   if(ok) partes.push(`${ok} venta${ok!==1?'s':''} importada${ok!==1?'s':''}`);
   if(warn) partes.push(`${warn} sin SKU omitida${warn!==1?'s':''}`);
   if(dupl) partes.push(`${dupl} duplicada${dupl!==1?'s':''} ignorada${dupl!==1?'s':''}`);
-  toast((ok?'✅ ':'⚠️ ')+partes.join(' · ')+(ok?' · Stock Full ML actualizado':''),'ok',6000);
+  if(errorLotes) partes.push(`${errorLotes} rechazada${errorLotes!==1?'s':''} por Supabase (ver consola F12)`);
+  toast((ok?'✅ ':'⚠️ ')+partes.join(' · ')+(ok?' · Stock Full ML actualizado':''),'ok',7000);
+  if(erroresDetalle.length) console.warn('Detalle de filas rechazadas:', erroresDetalle);
 }
 
 function limpiarMLPaste(){
