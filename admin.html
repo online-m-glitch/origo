@@ -862,6 +862,7 @@ tr:hover td{background:#fafbfc;}
       <div style="padding:24px;">
 
         <!-- Stats rápidos -->
+        <div style="font-size:11px;color:var(--text-soft);margin-bottom:6px;">📌 Totales históricos generales (todo el tiempo, todos los canales) — no cambian con los filtros de fecha de las pestañas de abajo.</div>
         <div class="stats-grid" id="ventasStats" style="margin-bottom:20px;"></div>
 
         <!-- TABS -->
@@ -1052,7 +1053,13 @@ tr:hover td{background:#fafbfc;}
                   <option value="15">Últimos 15 días</option>
                   <option value="30">Últimos 30 días</option>
                   <option value="60">Últimos 60 días</option>
+                  <option value="custom">Personalizado…</option>
                 </select>
+                <div id="vFechaPersonalizada" style="display:none;gap:6px;align-items:center;" class="toolbar">
+                  <input type="date" id="vFechaDesde" onchange="renderVentas()" style="padding:6px 8px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                  <span style="font-size:12px;color:var(--text-soft);">hasta</span>
+                  <input type="date" id="vFechaHasta" onchange="renderVentas()" style="padding:6px 8px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                </div>
                 <button class="btn btn-ghost" onclick="sincronizarFacturacionML()" title="Trae comisión, envío, financiación y retenciones (IVA/IIBB/Ganancias) reales desde la API de Facturación de ML, para las ventas ML que falten">🧾 Sincronizar facturación ML</button>
               </div>
             </div>
@@ -1129,7 +1136,13 @@ tr:hover td{background:#fafbfc;}
                   <option value="15">Últimos 15 días</option>
                   <option value="60">Últimos 60 días</option>
                   <option value="0">Todos los períodos</option>
+                  <option value="custom">Personalizado…</option>
                 </select>
+                <div id="rentFechaPersonalizada" style="display:none;gap:6px;align-items:center;" class="toolbar">
+                  <input type="date" id="rentFechaDesde" onchange="renderRentabilidad()" style="padding:6px 8px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                  <span style="font-size:12px;color:var(--text-soft);">hasta</span>
+                  <input type="date" id="rentFechaHasta" onchange="renderRentabilidad()" style="padding:6px 8px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                </div>
               </div>
             </div>
             <div style="font-size:11px;color:var(--text-soft);padding:8px 16px;border-bottom:1px solid var(--border);">Costo = costo cargado hoy en el Catálogo para ese SKU (no un histórico del costo al momento de la venta). Recibí ($) = neto real cuando la venta está sincronizada con la API de ML; estimado (bruto) si no. Filas sin costo cargado no suman a Ganancia/Margen.</div>
@@ -3953,16 +3966,28 @@ function costoDeSku(sku){
   return p?(Number(p.costo)||0):null; // null = no está en catálogo o sin costo cargado
 }
 function renderRentabilidad(){
-  const periodo=parseInt(document.getElementById("rentFiltroPeriodo")?.value||"30");
+  const periodoVal=document.getElementById("rentFiltroPeriodo")?.value||"30";
   const canal=document.getElementById("rentFiltroOrigen")?.value||"";
   const q=(document.getElementById("rentBuscar")?.value||"").toLowerCase().trim();
+  const customWrap=document.getElementById("rentFechaPersonalizada");
 
-  let desde=null;
-  if(periodo>0){ desde=new Date(); desde.setDate(desde.getDate()-periodo); }
+  let desde=null, hasta=null;
+  if(periodoVal==="custom"){
+    if(customWrap) customWrap.style.display="flex";
+    const d=document.getElementById("rentFechaDesde")?.value;
+    const h=document.getElementById("rentFechaHasta")?.value;
+    if(d) desde=new Date(d);
+    if(h){ hasta=new Date(h); hasta.setHours(23,59,59,999); }
+  } else {
+    if(customWrap) customWrap.style.display="none";
+    const periodo=parseInt(periodoVal);
+    if(periodo>0){ desde=new Date(); desde.setDate(desde.getDate()-periodo); }
+  }
 
   const lista=ventas.filter(v=>{
     if(canal && v.canal!==canal) return false;
     if(desde && new Date(v.fecha)<desde) return false;
+    if(hasta && new Date(v.fecha)>hasta) return false;
     if(q){
       const enSku=(v.sku||"").toLowerCase().includes(q);
       const enNombre=(v.producto||"").toLowerCase().includes(q);
@@ -3994,7 +4019,7 @@ function renderRentabilidad(){
   const margenPromedio = totRecibi? (totGanancia/totRecibi*100) : 0;
 
   // Gastos operativos del mismo período (no dependen del canal, son del negocio en general)
-  const listaGastos=gastos.filter(g=>!desde || new Date(g.fecha)>=desde).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+  const listaGastos=gastos.filter(g=>(!desde || new Date(g.fecha)>=desde)&&(!hasta || new Date(g.fecha)<=hasta)).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
   const totGastos=renderGastos(listaGastos);
   const gananciaNeta=totGanancia-totGastos;
 
@@ -4035,12 +4060,24 @@ function renderRentabilidad(){
 function renderVentas(){
   const q=(document.getElementById('vBuscar')?.value||'').toLowerCase();
   const origen=document.getElementById('vFiltroOrigen')?.value||'';
-  const periodo=parseInt(document.getElementById('vFiltroPeriodo')?.value||'0');
-  const ahora=new Date();
-  const desdeH=periodo>0?new Date(ahora.getTime()-periodo*24*60*60*1000):null;
+  const periodoVal=document.getElementById('vFiltroPeriodo')?.value||'0';
+  const customWrap=document.getElementById('vFechaPersonalizada');
+  let desdeH=null, hastaH=null;
+  if(periodoVal==='custom'){
+    if(customWrap) customWrap.style.display='flex';
+    const d=document.getElementById('vFechaDesde')?.value;
+    const h=document.getElementById('vFechaHasta')?.value;
+    if(d) desdeH=new Date(d);
+    if(h){ hastaH=new Date(h); hastaH.setHours(23,59,59,999); }
+  } else {
+    if(customWrap) customWrap.style.display='none';
+    const periodo=parseInt(periodoVal);
+    desdeH=periodo>0?new Date(Date.now()-periodo*24*60*60*1000):null;
+  }
   const lista=ventas.filter(v=>{
     if(origen&&v.canal!==origen) return false;
     if(desdeH&&new Date(v.fecha)<desdeH) return false;
+    if(hastaH&&new Date(v.fecha)>hastaH) return false;
     if(q&&!(v.sku||'').toLowerCase().includes(q)&&!(v.producto||'').toLowerCase().includes(q)&&!(v.nroVenta||'').toLowerCase().includes(q)) return false;
     return true;
   });
