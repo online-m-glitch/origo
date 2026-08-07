@@ -925,6 +925,7 @@ tr:hover td{background:#fafbfc;}
                 <tbody id="mlVentasBody"></tbody>
               </table>
               <div class="empty" id="mlVentasEmpty" style="display:none;"><div class="icon">💸</div><p>Sin ventas ML en el período seleccionado.</p></div>
+              <div id="mlVentasPaginacion"></div>
             </div>
           </div>
 
@@ -1002,6 +1003,7 @@ tr:hover td{background:#fafbfc;}
                 <tbody id="tVentasBody"></tbody>
               </table>
               <div class="empty" id="tVentasEmpty" style="display:none;"><div class="icon">🏪</div><p>Sin ventas de tienda en el período.</p></div>
+              <div id="tVentasPaginacion"></div>
             </div>
           </div>
 
@@ -1084,6 +1086,7 @@ tr:hover td{background:#fafbfc;}
                 <tbody id="ventasBody"></tbody>
               </table>
               <div class="empty" id="ventasEmpty" style="display:none;"><div class="icon">💸</div><p>Sin ventas registradas todavía.</p></div>
+              <div id="ventasPaginacion"></div>
             </div>
           </div>
         </div>
@@ -1118,13 +1121,14 @@ tr:hover td{background:#fafbfc;}
                 </div>
               </div>
             </div>
-            <div style="font-size:11px;color:var(--text-soft);padding:8px 16px;border-bottom:1px solid var(--border);">Costo = costo cargado hoy en el Catálogo para ese SKU (no un histórico del costo al momento de la venta). Recibí ($) = neto real cuando la venta está sincronizada con la API de ML; estimado (bruto) si no. Filas sin costo cargado no suman a Ganancia/Margen.</div>
+            <div style="font-size:11px;color:var(--text-soft);padding:8px 16px;border-bottom:1px solid var(--border);">Costo = el costo del producto en el momento en que se registró la venta (queda fijo, no cambia si después actualizás el costo en el Catálogo) — marcado con 🔒. Ventas cargadas antes de este cambio usan el costo actual del Catálogo como respaldo, sin el candado. Recibí ($) = neto real cuando la venta está sincronizada con la API de ML; estimado (bruto) si no. Filas sin costo cargado no suman a Ganancia/Margen.</div>
             <div class="table-wrap">
               <table>
                 <thead><tr><th>Fecha</th><th>Canal</th><th>SKU</th><th>Producto</th><th>Cant.</th><th>Ingreso ($)</th><th>Costo unit. ($)</th><th>Costo total ($)</th><th>Recibí ($)</th><th>Ganancia ($)</th><th>Margen %</th></tr></thead>
                 <tbody id="rentBody"></tbody>
               </table>
               <div class="empty" id="rentEmpty" style="display:none;"><div class="icon">🧮</div><p>Sin ventas en el período seleccionado.</p></div>
+              <div id="rentPaginacion"></div>
             </div>
           </div>
         </div>
@@ -1940,6 +1944,23 @@ async function sbGet(table, params){
   if(!r.ok) throw new Error(await r.text());
   return r.json();
 }
+// Trae TODAS las filas de una tabla, paginando de a `pageSize` (evita el techo que impone un limit fijo
+// cuando la tabla crece más allá de esa cantidad — ej. después de una importación masiva).
+async function sbGetAll(table, baseParams, pageSize){
+  pageSize = pageSize || 1000;
+  baseParams = baseParams || "";
+  const todas = [];
+  let offset = 0;
+  while(true){
+    const sep = baseParams ? "&" : "";
+    const pagina = await sbGet(table, baseParams+sep+"limit="+pageSize+"&offset="+offset);
+    todas.push(...pagina);
+    if(pagina.length < pageSize) break; // última página
+    offset += pageSize;
+    if(offset > 200000) break; // corte de seguridad
+  }
+  return todas;
+}
 async function sbInsert(table, data){
   const r = await fetch(SB_URL+"/rest/v1/"+table, {
     method:"POST",
@@ -2105,11 +2126,11 @@ async function cargarDatos(){
   try{
     const [prods, movs, cc, sml, comps, vents, mlf, cfg] = await Promise.all([
       sbGet("productos","order=sku.asc"),
-      sbGet("movimientos","order=created_at.desc&limit=2000"),
+      sbGetAll("movimientos","order=created_at.desc"),
       sbGet("cuenta_corriente","order=created_at.desc"),
       sbGet("stock_ml","select=sku,cantidad"),
       sbGet("compras","order=created_at.desc"),
-      sbGet("ventas","order=created_at.desc&limit=2000"),
+      sbGetAll("ventas","order=created_at.desc"),
       sbGet("ml_fees","select=sku,fee_amount,fee_pct,shipping_cost,fee_fixed,ml_price"),
       sbGet("app_config","select=key,value")
     ]);
@@ -3983,6 +4004,7 @@ async function confirmarImportML(){
       totalNeto:l.totalNeto,
       esCarrito:l.esCarrito||false,
       nroVenta:l.nroVenta,
+      costo_unitario:p?p.costo:0,
       obs:l.esCarrito?'Importado ML (carrito)':'Importado ML'
     });
     mDatas.push({
@@ -4075,7 +4097,7 @@ async function registrarVentaTienda(){
   const dep=p?calcularStockDeposito(sku):0;
   if(dep<cantidad){ toast(`Stock insuficiente en depósito propio (disponible: ${dep}).`,'err'); return; }
 
-  const vData={fecha, canal:'Tienda', sku, producto:p?p.nombre:'', cantidad, precio, ingresoBruto:cantidad*precio, totalNeto:cantidad*precio, obs};
+  const vData={fecha, canal:'Tienda', sku, producto:p?p.nombre:'', cantidad, precio, ingresoBruto:cantidad*precio, totalNeto:cantidad*precio, esCarrito:false, costo_unitario:p?p.costo:0, obs};
   const mData={fecha, tipo:'Venta', sku, producto:p?p.nombre:'', cantidad, costo:p?p.costo:0, precio, obs:obs||'Venta Tienda', origen:'Tienda'};
   let sm, sv;
   try{
@@ -4281,6 +4303,41 @@ function costoDeSku(sku){
   const p=productos.find(x=>x.sku.toUpperCase().trim()===skuUp);
   return p?(Number(p.costo)||0):null; // null = no está en catálogo o sin costo cargado
 }
+// ── Paginador genérico reutilizable ──
+function renderPaginador(containerId, total, porPagina, paginaActual, fnName){
+  const el=document.getElementById(containerId);
+  if(!el) return;
+  const totalPaginas=Math.max(1,Math.ceil(total/porPagina));
+  if(totalPaginas<=1){ el.innerHTML=''; return; }
+  const desde=total===0?0:(paginaActual-1)*porPagina+1;
+  const hasta=Math.min(paginaActual*porPagina,total);
+  let paginas=[];
+  const addRango=(a,b)=>{ for(let i=a;i<=b;i++) paginas.push(i); };
+  if(totalPaginas<=7){ addRango(1,totalPaginas); }
+  else{
+    paginas.push(1);
+    if(paginaActual>3) paginas.push('…');
+    addRango(Math.max(2,paginaActual-1), Math.min(totalPaginas-1,paginaActual+1));
+    if(paginaActual<totalPaginas-2) paginas.push('…');
+    paginas.push(totalPaginas);
+  }
+  const botonesHtml = paginas.map(p=>{
+    if(p==='…') return `<span style="padding:0 4px;color:var(--text-soft);">…</span>`;
+    return `<button class="btn ${p===paginaActual?'btn-primary':'btn-ghost'} btn-sm" style="min-width:32px;padding:6px 8px;" onclick="${fnName}(${p})">${p}</button>`;
+  }).join('');
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 4px;flex-wrap:wrap;gap:10px;border-top:1px solid var(--border);">
+      <span style="font-size:12px;color:var(--text-soft);">Mostrando ${desde}–${hasta} de ${total}</span>
+      <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">
+        <button class="btn btn-ghost btn-sm" style="padding:6px 10px;" ${paginaActual<=1?'disabled':''} onclick="${fnName}(${paginaActual-1})">‹ Anterior</button>
+        ${botonesHtml}
+        <button class="btn btn-ghost btn-sm" style="padding:6px 10px;" ${paginaActual>=totalPaginas?'disabled':''} onclick="${fnName}(${paginaActual+1})">Siguiente ›</button>
+      </div>
+    </div>`;
+}
+
+let rentPagina=1, rentFiltroFirma='';
+function irAPaginaRentabilidad(n){ rentPagina=n; renderRentabilidad(); }
 function renderRentabilidad(){
   const periodoVal=document.getElementById("rentFiltroPeriodo")?.value||"30";
   const canal=document.getElementById("rentFiltroOrigen")?.value||"";
@@ -4320,7 +4377,10 @@ function renderRentabilidad(){
   const filas=lista.map(v=>{
     const ingreso=v.precio*v.cantidad;
     const recibi=v.totalNeto||v.ingresoBruto||ingreso;
-    const costoUnit=costoDeSku(v.sku);
+    // Costo "congelado" al momento de la venta (no se recalcula si el costo del producto cambió después).
+    // Respaldo al costo actual del catálogo solo para ventas viejas, cargadas antes de guardar este dato.
+    const esHistorico = v.costo_unitario!=null && v.costo_unitario>0;
+    const costoUnit = esHistorico ? Number(v.costo_unitario) : costoDeSku(v.sku);
     const tieneCosto=costoUnit!==null && costoUnit>0;
     const costoTotal=tieneCosto?costoUnit*v.cantidad:null;
     const ganancia=tieneCosto?recibi-costoTotal:null;
@@ -4329,10 +4389,13 @@ function renderRentabilidad(){
     totUnid+=v.cantidad; totIngreso+=ingreso; totRecibi+=recibi;
     if(tieneCosto){ conCosto++; totCosto+=costoTotal; totGanancia+=ganancia; }
 
-    return {v, ingreso, recibi, costoUnit, tieneCosto, costoTotal, ganancia, margen};
+    return {v, ingreso, recibi, costoUnit, tieneCosto, esHistorico, costoTotal, ganancia, margen};
   });
 
   const margenPromedio = totRecibi? (totGanancia/totRecibi*100) : 0;
+
+  const firma=JSON.stringify([q,canal,periodoVal,desde&&+desde,hasta&&+hasta]);
+  if(firma!==rentFiltroFirma){ rentFiltroFirma=firma; rentPagina=1; }
 
   // Gastos operativos del mismo período (no dependen del canal, son del negocio en general)
   const totGastos=sumaGastosPeriodo(desde, hasta);
@@ -4350,11 +4413,16 @@ function renderRentabilidad(){
     <div class="stat-card"><div class="label">Margen promedio</div><div class="value">${margenPromedio.toFixed(1)}%</div></div>
   `;
 
-  if(!filas.length){ if(tbody) tbody.innerHTML=""; if(empty) empty.style.display="block"; return; }
+  if(!filas.length){ if(tbody) tbody.innerHTML=""; if(empty) empty.style.display="block"; renderPaginador('rentPaginacion',0,50,1,'irAPaginaRentabilidad'); return; }
   if(empty) empty.style.display="none";
 
-  if(tbody) tbody.innerHTML=filas.map(f=>{
-    const {v,ingreso,recibi,costoUnit,tieneCosto,costoTotal,ganancia,margen}=f;
+  const porPagina=50;
+  const totalPaginas=Math.max(1,Math.ceil(filas.length/porPagina));
+  if(rentPagina>totalPaginas) rentPagina=totalPaginas;
+  const paginaFilas=filas.slice((rentPagina-1)*porPagina, rentPagina*porPagina);
+
+  if(tbody) tbody.innerHTML=paginaFilas.map(f=>{
+    const {v,ingreso,recibi,costoUnit,tieneCosto,esHistorico,costoTotal,ganancia,margen}=f;
     const margenCls=margen===null?"":margen>=25?"num-pos":margen>=10?"":"num-neg";
     return `<tr>
       <td>${v.fecha}</td>
@@ -4363,15 +4431,18 @@ function renderRentabilidad(){
       <td style="max-width:180px;">${esc(v.producto||'')}</td>
       <td class="num">${v.cantidad}</td>
       <td class="num">$${fmt(ingreso)}</td>
-      <td class="num" style="${tieneCosto?'':'color:var(--text-soft);'}">${tieneCosto?'$'+fmt(costoUnit):'sin costo'}</td>
+      <td class="num" style="${tieneCosto?'':'color:var(--text-soft);'}" title="${esHistorico?'Costo congelado al momento de la venta':'Costo actual del catálogo (venta anterior a este cambio)'}">${tieneCosto?'$'+fmt(costoUnit)+(esHistorico?' 🔒':' *'):'sin costo'}</td>
       <td class="num">${tieneCosto?'$'+fmt(costoTotal):'—'}</td>
       <td class="num num-pos" style="font-weight:700;">$${fmt(recibi)}</td>
       <td class="num ${ganancia!==null&&ganancia<0?'num-neg':''}" style="font-weight:700;">${tieneCosto?'$'+fmt(ganancia):'—'}</td>
       <td class="num ${margenCls}">${margen!==null?margen.toFixed(0)+'%':'—'}</td>
     </tr>`;
   }).join("");
+  renderPaginador('rentPaginacion', filas.length, porPagina, rentPagina, 'irAPaginaRentabilidad');
 }
 
+let vPagina=1, vFiltroFirma='';
+function irAPaginaVentas(n){ vPagina=n; renderVentas(); }
 function renderVentas(){
   const q=(document.getElementById('vBuscar')?.value||'').toLowerCase();
   const origen=document.getElementById('vFiltroOrigen')?.value||'';
@@ -4396,12 +4467,19 @@ function renderVentas(){
     if(q&&!(v.sku||'').toLowerCase().includes(q)&&!(v.producto||'').toLowerCase().includes(q)&&!(v.nroVenta||'').toLowerCase().includes(q)) return false;
     return true;
   });
+  const firma=JSON.stringify([q,origen,periodoVal,desdeH&&+desdeH,hastaH&&+hastaH]);
+  if(firma!==vFiltroFirma){ vFiltroFirma=firma; vPagina=1; }
   const tbody=document.getElementById('ventasBody');
   const empty=document.getElementById('ventasEmpty');
-  if(!lista.length){ tbody.innerHTML=''; empty.style.display='block'; return; }
+  if(!lista.length){ tbody.innerHTML=''; empty.style.display='block'; renderPaginador('ventasPaginacion',0,50,1,'irAPaginaVentas'); return; }
   empty.style.display='none';
 
-  tbody.innerHTML=lista.map((v,i)=>{
+  const porPagina=50;
+  const totalPaginas=Math.max(1,Math.ceil(lista.length/porPagina));
+  if(vPagina>totalPaginas) vPagina=totalPaginas;
+  const paginaLista=lista.slice((vPagina-1)*porPagina, vPagina*porPagina);
+
+  tbody.innerHTML=paginaLista.map((v,i)=>{
     const realIdx=ventas.indexOf(v);
     const tieneReal=!!v.billing_synced;
     const tooltipReal=tieneReal
@@ -4440,6 +4518,7 @@ function renderVentas(){
     <div class="stat-card"><div class="label">Transacciones</div><div class="value">${ventas.length}</div></div>
     <div class="stat-card"><div class="label">Retenciones ML reales (${ventasMLSync.length} sync)</div><div class="value" style="color:var(--orange);">$${fmt(retencionesTotales)}</div></div>
   `;
+  renderPaginador('ventasPaginacion', lista.length, porPagina, vPagina, 'irAPaginaVentas');
 }
 
 // Busca y elimina (Supabase + local) los movimientos "Baja" de componentes generados por la venta de un combo
@@ -5018,6 +5097,7 @@ async function convertirPedidoVenta(id){
         cantidad:item.cantidad, precio:item.precio||0,
         ingresoBruto:(item.precio||0)*item.cantidad,
         totalNeto:(item.precio||0)*item.cantidad,
+        costo_unitario:prod?prod.costo:0,
         obs:"Pedido online #"+p.id+" · "+p.nombre
       };
       const mData = {
@@ -5933,7 +6013,7 @@ async function sincronizarVentasML(){
 
         const vData = {fecha:fechaStr, canal:"ML", sku, producto:prod?prod.nombre:titulo,
           cantidad, precio:precioUnit, ingresoBruto:precioUnit*cantidad,
-          totalNeto, esCarrito:false, nroVenta, obs:"Sync ML API"};
+          totalNeto, esCarrito:false, nroVenta, costo_unitario:prod?prod.costo:0, obs:"Sync ML API"};
         const mData = {fecha:fechaStr, tipo:"Venta", sku, producto:prod?prod.nombre:titulo,
           cantidad, costo:prod?prod.costo:0, precio:precioUnit,
           obs:"Venta ML #"+nroVenta+" (API)", origen:"ML"};
@@ -6094,6 +6174,8 @@ window.addEventListener("load", function(){
 
 
 // ── Ventas Tienda filtradas por período ──
+let tVentasPagina=1, tVentasFiltroFirma='';
+function irAPaginaVentasTienda(n){ tVentasPagina=n; renderVentasTienda(); }
 function renderVentasTienda(){
   const periodo = parseInt(document.getElementById("tVentasPeriodo")?.value||"30");
   const personWrap = document.getElementById("tFechaPersonalizada");
@@ -6131,9 +6213,18 @@ function renderVentasTienda(){
      <div class="stat-card"><div class="label">Unidades</div><div class="value">${totalUnid}</div></div>
      <div class="stat-card"><div class="label">Total vendido</div><div class="value green">$${fmt(totalV)}</div></div>`;
 
-  if(!lista.length){if(tbody)tbody.innerHTML="";if(empty)empty.style.display="block";return;}
+  const firma=JSON.stringify([periodo,buscar,+desde,+hasta]);
+  if(firma!==tVentasFiltroFirma){ tVentasFiltroFirma=firma; tVentasPagina=1; }
+
+  if(!lista.length){if(tbody)tbody.innerHTML="";if(empty)empty.style.display="block";renderPaginador('tVentasPaginacion',0,50,1,'irAPaginaVentasTienda');return;}
   if(empty)empty.style.display="none";
-  if(tbody)tbody.innerHTML=lista.map(v=>`<tr>
+
+  const porPagina=50;
+  const totalPaginas=Math.max(1,Math.ceil(lista.length/porPagina));
+  if(tVentasPagina>totalPaginas) tVentasPagina=totalPaginas;
+  const paginaLista=lista.slice((tVentasPagina-1)*porPagina, tVentasPagina*porPagina);
+
+  if(tbody)tbody.innerHTML=paginaLista.map(v=>`<tr>
     <td>${v.fecha}</td>
     <td><span class="sku-tag">${esc(v.sku)}</span></td>
     <td style="max-width:180px;">${esc(v.producto||"")}</td>
@@ -6141,9 +6232,12 @@ function renderVentasTienda(){
     <td class="num">$${fmt(v.precio)}</td>
     <td class="num" style="font-weight:700;">$${fmt(v.precio*v.cantidad)}</td>
   </tr>`).join("");
+  renderPaginador('tVentasPaginacion', lista.length, porPagina, tVentasPagina, 'irAPaginaVentasTienda');
 }
 
 // ── Ventas ML filtradas por período ──
+let mlVentasPagina=1, mlVentasFiltroFirma='';
+function irAPaginaVentasML(n){ mlVentasPagina=n; renderVentasML(); }
 function renderVentasML(){
   const periodo = parseInt(document.getElementById("mlVentasPeriodo")?.value||"30");
   const personWrap = document.getElementById("mlFechaPersonalizada");
@@ -6197,10 +6291,18 @@ function renderVentasML(){
      <div class="stat-card"><div class="label">Ingreso bruto</div><div class="value blue">$${fmt(totalIngreso)}</div></div>
      <div class="stat-card"><div class="label">Recibí neto</div><div class="value green">$${fmt(totalNeto)}</div></div>`;
 
-  if(!lista.length){ if(tbody) tbody.innerHTML=""; if(empty) empty.style.display="block"; return; }
+  const firma=JSON.stringify([periodo,buscarML,+desde,+hasta]);
+  if(firma!==mlVentasFiltroFirma){ mlVentasFiltroFirma=firma; mlVentasPagina=1; }
+
+  if(!lista.length){ if(tbody) tbody.innerHTML=""; if(empty) empty.style.display="block"; renderPaginador('mlVentasPaginacion',0,50,1,'irAPaginaVentasML'); return; }
   if(empty) empty.style.display="none";
 
-  if(tbody) tbody.innerHTML = lista.map(v=>`<tr>
+  const porPagina=50;
+  const totalPaginas=Math.max(1,Math.ceil(lista.length/porPagina));
+  if(mlVentasPagina>totalPaginas) mlVentasPagina=totalPaginas;
+  const paginaLista=lista.slice((mlVentasPagina-1)*porPagina, mlVentasPagina*porPagina);
+
+  if(tbody) tbody.innerHTML = paginaLista.map(v=>`<tr>
     <td>${v.fecha}</td>
     <td><span class="sku-tag">${esc(v.sku)}</span></td>
     <td style="max-width:180px;">${esc(v.producto||"")}</td>
@@ -6209,6 +6311,7 @@ function renderVentasML(){
     <td class="num num-pos">$${fmt(v.totalNeto||v.ingresoBruto||v.precio*v.cantidad)}</td>
     <td style="font-size:11px;color:var(--text-soft);">${esc(v.nroVenta||"")}</td>
   </tr>`).join("");
+  renderPaginador('mlVentasPaginacion', lista.length, porPagina, mlVentasPagina, 'irAPaginaVentasML');
 }
 
 
