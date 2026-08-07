@@ -362,6 +362,12 @@ tr:hover td{background:#fafbfc;}
     <div class="nav-item" onclick="mostrarSeccion('ventas')">
       <span class="icon">💸</span> Ventas
     </div>
+    <div class="nav-item" onclick="mostrarSeccion('gastos')">
+      <span class="icon">🧮</span> Gastos
+    </div>
+    <div class="nav-item" onclick="mostrarSeccion('caja')">
+      <span class="icon">💵</span> Caja
+    </div>
     <div class="nav-item" onclick="mostrarSeccion('cuentacorriente')">
       <span class="icon">🏭</span> Cuenta Corriente
     </div>
@@ -1025,6 +1031,15 @@ tr:hover td{background:#fafbfc;}
                   <input type="number" id="vtPrecio" placeholder="0">
                 </div>
                 <div class="form-group">
+                  <label>Método de pago</label>
+                  <select id="vtMetodoPago">
+                    <option value="Efectivo">💵 Efectivo</option>
+                    <option value="MercadoPago">💳 Mercado Pago</option>
+                    <option value="Transferencia">🏦 Transferencia</option>
+                    <option value="Otro">Otro / no registrar en Caja</option>
+                  </select>
+                </div>
+                <div class="form-group">
                   <label>Observaciones</label>
                   <input type="text" id="vtObs" placeholder="Opcional">
                 </div>
@@ -1076,49 +1091,7 @@ tr:hover td{background:#fafbfc;}
         <!-- TAB: Rentabilidad -->
         <div id="vpanel-rentabilidad" style="display:none;">
           <div class="stats-grid" id="rentStats" style="margin-bottom:16px;"></div>
-
-          <div class="card" style="margin-bottom:20px;">
-            <div class="card-header">
-              <h3>💸 Gastos operativos <span style="font-weight:400;color:var(--text-soft);font-size:12px;">— monotributo, personal, insumos, factura ML, etc. (no asociados a un producto puntual)</span></h3>
-            </div>
-            <div style="padding:16px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
-              <div class="form-group" style="margin:0;">
-                <label style="font-size:11px;">Fecha</label>
-                <input type="date" id="gFecha" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
-              </div>
-              <div class="form-group" style="margin:0;">
-                <label style="font-size:11px;">Categoría</label>
-                <select id="gCategoria" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
-                  <option value="Monotributo">Monotributo</option>
-                  <option value="Personal">Personal (armado de pedidos)</option>
-                  <option value="Insumos">Insumos</option>
-                  <option value="Factura ML">Factura MercadoLibre (Ads/servicios)</option>
-                  <option value="Alquiler">Alquiler</option>
-                  <option value="Impuestos">Impuestos</option>
-                  <option value="Otro">Otro</option>
-                </select>
-              </div>
-              <div class="form-group" style="margin:0;flex:1;min-width:160px;">
-                <label style="font-size:11px;">Descripción</label>
-                <input type="text" id="gDescripcion" placeholder="Opcional" style="width:100%;padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
-              </div>
-              <div class="form-group" style="margin:0;">
-                <label style="font-size:11px;">Monto ($)</label>
-                <input type="number" id="gMonto" placeholder="0" style="width:110px;padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
-              </div>
-              <label style="font-size:11px;display:flex;align-items:center;gap:5px;color:var(--text-soft);">
-                <input type="checkbox" id="gRecurrente" style="width:14px;height:14px;"> Es mensual fijo
-              </label>
-              <button class="btn btn-primary" onclick="registrarGasto()">+ Agregar gasto</button>
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th>Monto ($)</th><th>¿Fijo mensual?</th><th></th></tr></thead>
-                <tbody id="gastosBody"></tbody>
-              </table>
-              <div class="empty" id="gastosEmpty" style="display:none;"><div class="icon">💸</div><p>Sin gastos cargados en este período.</p></div>
-            </div>
-          </div>
+          <div style="font-size:11px;color:var(--text-soft);margin-bottom:16px;">Los gastos operativos (monotributo, personal, insumos, etc.) ahora se cargan en <strong>Operaciones → Gastos</strong>. Acá se descuentan automáticamente del mismo período para calcular la Ganancia neta real. <span onclick="mostrarSeccion('gastos')" style="color:var(--ml-blue);cursor:pointer;text-decoration:underline;">Ir a Gastos →</span></div>
 
           <div class="card">
             <div class="card-header">
@@ -1159,6 +1132,152 @@ tr:hover td{background:#fafbfc;}
       </div>
     </div>
 
+
+    <!-- ========== GASTOS ========== -->
+    <div id="sec-gastos" class="section">
+      <div class="page-header">
+        <div><h2>Gastos operativos</h2><div class="sub">Monotributo, personal, insumos, factura ML, alquiler, etc. — costos del negocio no asociados a un producto puntual</div></div>
+      </div>
+      <div style="padding:24px;">
+        <div class="stats-grid" id="gastosStats" style="margin-bottom:20px;"></div>
+        <div class="card">
+          <div class="card-header">
+            <h3>💸 Gastos</h3>
+            <div class="toolbar">
+              <input class="search-input" type="text" id="gBuscar" placeholder="Buscar descripción…" oninput="renderGastosSeccion()">
+              <select id="gFiltroCategoria" onchange="renderGastosSeccion()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                <option value="">Todas las categorías</option>
+                <option value="Monotributo">Monotributo</option>
+                <option value="Personal">Personal</option>
+                <option value="Insumos">Insumos</option>
+                <option value="Factura ML">Factura ML</option>
+                <option value="Alquiler">Alquiler</option>
+                <option value="Impuestos">Impuestos</option>
+                <option value="Otro">Otro</option>
+              </select>
+              <select id="gFiltroPeriodo" onchange="renderGastosSeccion()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                <option value="0">Todos los períodos</option>
+                <option value="30">Últimos 30 días</option>
+                <option value="90">Últimos 90 días</option>
+                <option value="365">Este año</option>
+                <option value="custom">Personalizado…</option>
+              </select>
+              <div id="gFechaPersonalizada" style="display:none;gap:6px;align-items:center;" class="toolbar">
+                <input type="date" id="gFiltroDesde" onchange="renderGastosSeccion()" style="padding:6px 8px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                <span style="font-size:12px;color:var(--text-soft);">hasta</span>
+                <input type="date" id="gFiltroHasta" onchange="renderGastosSeccion()" style="padding:6px 8px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+              </div>
+            </div>
+          </div>
+          <div style="padding:16px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+            <div class="form-group" style="margin:0;">
+              <label style="font-size:11px;">Fecha</label>
+              <input type="date" id="gFecha" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label style="font-size:11px;">Categoría</label>
+              <select id="gCategoria" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                <option value="Monotributo">Monotributo</option>
+                <option value="Personal">Personal (armado de pedidos)</option>
+                <option value="Insumos">Insumos</option>
+                <option value="Factura ML">Factura MercadoLibre (Ads/servicios)</option>
+                <option value="Alquiler">Alquiler</option>
+                <option value="Impuestos">Impuestos</option>
+                <option value="Otro">Otro</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin:0;flex:1;min-width:160px;">
+              <label style="font-size:11px;">Descripción</label>
+              <input type="text" id="gDescripcion" placeholder="Opcional" style="width:100%;padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label style="font-size:11px;">Monto ($)</label>
+              <input type="number" id="gMonto" placeholder="0" style="width:110px;padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+            </div>
+            <label style="font-size:11px;display:flex;align-items:center;gap:5px;color:var(--text-soft);">
+              <input type="checkbox" id="gRecurrente" style="width:14px;height:14px;"> Es mensual fijo
+            </label>
+            <button class="btn btn-primary" onclick="registrarGasto()">+ Agregar gasto</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th>Monto ($)</th><th>¿Fijo mensual?</th><th></th></tr></thead>
+              <tbody id="gastosBody"></tbody>
+            </table>
+            <div class="empty" id="gastosEmpty" style="display:none;"><div class="icon">💸</div><p>Sin gastos cargados.</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== CAJA ========== -->
+    <div id="sec-caja" class="section">
+      <div class="page-header">
+        <div><h2>Caja</h2><div class="sub">Efectivo y Mercado Pago — saldo disponible y movimientos</div></div>
+      </div>
+      <div style="padding:24px;">
+        <div class="stats-grid" id="cajaSaldos" style="margin-bottom:20px;"></div>
+
+        <div class="card" style="margin-bottom:20px;">
+          <div class="card-header"><h3>➕ Registrar movimiento manual</h3></div>
+          <div style="padding:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+            <div class="form-group" style="margin:0;">
+              <label style="font-size:11px;">Fecha</label>
+              <input type="date" id="cmFecha" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label style="font-size:11px;">Caja</label>
+              <select id="cmCaja" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                <option value="Efectivo">💵 Efectivo</option>
+                <option value="MercadoPago">💳 Mercado Pago</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label style="font-size:11px;">Tipo</label>
+              <select id="cmTipo" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                <option value="Ingreso">Ingreso</option>
+                <option value="Egreso">Egreso</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin:0;flex:1;min-width:160px;">
+              <label style="font-size:11px;">Concepto</label>
+              <input type="text" id="cmConcepto" placeholder="Ej: Retiro para gastos, depósito, etc." style="width:100%;padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label style="font-size:11px;">Monto ($)</label>
+              <input type="number" id="cmMonto" placeholder="0" style="width:110px;padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+            </div>
+            <button class="btn btn-primary" onclick="registrarCajaMov()">+ Registrar</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>📋 Movimientos de caja</h3>
+            <div class="toolbar">
+              <select id="cmFiltroCaja" onchange="renderCaja()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                <option value="">Todas las cajas</option>
+                <option value="Efectivo">Efectivo</option>
+                <option value="MercadoPago">Mercado Pago</option>
+              </select>
+              <select id="cmFiltroPeriodo" onchange="renderCaja()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                <option value="0">Todos los períodos</option>
+                <option value="7">Últimos 7 días</option>
+                <option value="30">Últimos 30 días</option>
+                <option value="90">Últimos 90 días</option>
+              </select>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Fecha</th><th>Caja</th><th>Tipo</th><th>Concepto</th><th>Origen</th><th>Monto ($)</th><th></th></tr></thead>
+              <tbody id="cajaBody"></tbody>
+            </table>
+            <div class="empty" id="cajaEmpty" style="display:none;"><div class="icon">💵</div><p>Sin movimientos de caja todavía.</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- ========== ANÁLISIS ML ========== -->
     <div id="sec-analisis" class="section">
@@ -1829,6 +1948,24 @@ async function sbInsert(table, data){
   const res = await r.json();
   return Array.isArray(res)?res[0]:res;
 }
+// Inserta muchas filas en pocas requests (en vez de una request por fila) — PostgREST soporta bulk insert
+// pasando un array en el body. Devuelve el array completo de filas insertadas (con sus id), en el mismo orden.
+async function sbInsertBulk(table, arrayData, chunkSize){
+  chunkSize = chunkSize || 300;
+  const resultados = [];
+  for(let i=0;i<arrayData.length;i+=chunkSize){
+    const chunk = arrayData.slice(i, i+chunkSize);
+    const r = await fetch(SB_URL+"/rest/v1/"+table, {
+      method:"POST",
+      headers: {"apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY,"Content-Type":"application/json","Prefer":"return=representation"},
+      body: JSON.stringify(chunk)
+    });
+    if(!r.ok) throw new Error(await r.text());
+    const res = await r.json();
+    resultados.push(...(Array.isArray(res)?res:[res]));
+  }
+  return resultados;
+}
 async function sbUpsert(table, data){
   const r = await fetch(SB_URL+"/rest/v1/"+table, {
     method:"POST",
@@ -1871,6 +2008,7 @@ let compras = [];
 let lineasCompra = []; // líneas del remito en edición
 let ventas = [];
 let gastos = []; // gastos operativos no asociados a un producto (monotributo, personal, insumos, factura ML, etc.)
+let cajaMovimientos = []; // movimientos de caja (Efectivo, Mercado Pago)
 let pedidos = [];
 let pedidosProv = [];
 let proveedoresDB = [];
@@ -1991,6 +2129,10 @@ async function cargarDatos(){
       const gts = await sbGet("gastos","order=fecha.desc");
       gastos = gts||[];
     }catch(e){ gastos=[]; }
+    try{
+      const cms = await sbGet("caja_movimientos","order=fecha.desc");
+      cajaMovimientos = cms||[];
+    }catch(e){ cajaMovimientos=[]; }
     // Proveedores
     try{
       const provs = await sbGet("proveedores","order=nombre.asc");
@@ -2044,6 +2186,8 @@ async function sbGuardar(tipo, data){
     if(tipo==="deleteVenta")   { await sbDelete("ventas","id=eq."+data); }
     if(tipo==="gasto")         { const r=await sbInsert("gastos",data); return r; }
     if(tipo==="deleteGasto")   { await sbDelete("gastos","id=eq."+data); }
+    if(tipo==="cajamov")       { const r=await sbInsert("caja_movimientos",data); return r; }
+    if(tipo==="deleteCajaMov") { await sbDelete("caja_movimientos","id=eq."+data); }
     if(tipo==="updatePedido")  { await sbUpdate ? sbUpdate("pedidos","id=eq."+data.id,{estado:data.estado}) : null; }
     if(tipo==="deletePedido")  { await sbDelete("pedidos","id=eq."+data); }
     if(tipo==="reset"){
@@ -3432,6 +3576,8 @@ async function mostrarSeccion(id){
   if(id==="cuentacorriente") renderCC();
   if(id==="compras"){ renderCompras(); actualizarSkuListCompras(); }
   if(id==="ventas"){ renderVentas(); renderVentasML(); renderVentasTienda(); }
+  if(id==="gastos"){ renderGastosSeccion(); }
+  if(id==="caja"){ renderCaja(); }
   if(id==="pedidos"){ renderPedidos(); }
   if(id==="pedidosprov"){ renderPedidosProv(); }
   if(id==="proveedores"){ renderProveedores(); }
@@ -3816,16 +3962,18 @@ async function confirmarImportML(){
   const seleccionadas=mlLineasPreview.filter((_,i)=>document.getElementById('mlCheck'+i)?.checked);
   if(!seleccionadas.length){ toast('Seleccioná al menos una línea.','err'); return; }
 
-  let ok=0, warn=0, dupl=0;
-  mostrarCargando(true);
+  // Set de "nroVenta|sku" ya existentes, para chequear duplicados en O(1) en vez de recorrer todo `ventas` por cada línea
+  const existentes=new Set(ventas.filter(v=>v.canal==='ML').map(v=>v.nroVenta+'|'+v.sku.toUpperCase()));
+
+  const vDatas=[], mDatas=[];
+  let warn=0, dupl=0;
   for(const l of seleccionadas){
     if(!l.sku){ warn++; continue; }
-    const yaExiste=ventas.some(v=>
-      v.nroVenta===l.nroVenta && v.sku.toUpperCase()===l.sku.toUpperCase() && v.canal==='ML'
-    );
-    if(yaExiste){ dupl++; continue; }
+    const key=l.nroVenta+'|'+l.sku.toUpperCase();
+    if(existentes.has(key)){ dupl++; continue; }
+    existentes.add(key); // por si el mismo archivo trae la línea repetida
     const p=productos.find(x=>x.sku.toUpperCase()===l.sku.toUpperCase());
-    const vData={
+    vDatas.push({
       fecha:l.fecha, canal:'ML', sku:l.sku,
       producto:l.producto||l.titulo, cantidad:l.cantidad,
       precio:l.precioUnit,
@@ -3834,29 +3982,50 @@ async function confirmarImportML(){
       esCarrito:l.esCarrito||false,
       nroVenta:l.nroVenta,
       obs:l.esCarrito?'Importado ML (carrito)':'Importado ML'
-    };
-    const mData={
+    });
+    mDatas.push({
       fecha:l.fecha, tipo:'Venta', sku:l.sku,
       producto:l.producto||l.titulo, cantidad:l.cantidad,
       costo:p?p.costo:0, precio:l.precioUnit,
       obs:'Venta ML #'+l.nroVenta, origen:'ML'
-    };
-    try{
-      const sv=await sbGuardar('venta', vData);
-      ventas.unshift(Object.assign({},vData,sv||{}));
-      const sm=await sbGuardar('movimiento', mData);
-      movimientos.unshift(Object.assign({},mData,sm||{}));
-      ok++;
-    }catch(e){ warn++; }
+    });
   }
-  mostrarCargando(false);
+
+  let ok=0;
+  if(vDatas.length){
+    mostrarCargando(true);
+    const CHUNK=300;
+    const totalLotes=Math.ceil(vDatas.length/CHUNK);
+    try{
+      for(let i=0;i<vDatas.length;i+=CHUNK){
+        const loteActual=Math.floor(i/CHUNK)+1;
+        toast(`Importando lote ${loteActual}/${totalLotes}…`,'ok',60000);
+        const vChunk=vDatas.slice(i,i+CHUNK);
+        const mChunk=mDatas.slice(i,i+CHUNK);
+        const [svs, sms]=await Promise.all([
+          sbInsertBulk('ventas', vChunk, CHUNK),
+          sbInsertBulk('movimientos', mChunk, CHUNK)
+        ]);
+        svs.forEach((sv,idx)=>ventas.unshift(Object.assign({},vChunk[idx],sv||{})));
+        sms.forEach((sm,idx)=>movimientos.unshift(Object.assign({},mChunk[idx],sm||{})));
+        ok+=svs.length;
+      }
+    }catch(e){
+      mostrarCargando(false);
+      toast('Error importando: '+e.message,'err',8000);
+      renderVentas(); renderPanel(); renderStock(); renderAlertas(); renderMovimientos();
+      return;
+    }
+    mostrarCargando(false);
+  }
+
   renderVentas(); renderPanel(); renderStock(); renderAlertas(); renderMovimientos();
   limpiarMLPaste();
   const partes=[];
   if(ok) partes.push(`${ok} venta${ok!==1?'s':''} importada${ok!==1?'s':''}`);
   if(warn) partes.push(`${warn} sin SKU omitida${warn!==1?'s':''}`);
   if(dupl) partes.push(`${dupl} duplicada${dupl!==1?'s':''} ignorada${dupl!==1?'s':''}`);
-  toast((ok?'✅ ':'⚠️ ')+partes.join(' · ')+(ok?' · Stock Full ML actualizado':''),'ok',5000);
+  toast((ok?'✅ ':'⚠️ ')+partes.join(' · ')+(ok?' · Stock Full ML actualizado':''),'ok',6000);
 }
 
 function limpiarMLPaste(){
@@ -3885,6 +4054,7 @@ async function registrarVentaTienda(){
   const cantidad=parseInt(document.getElementById('vtCantidad').value)||0;
   const precio=parseFloat(document.getElementById('vtPrecio').value)||0;
   const obs=document.getElementById('vtObs').value.trim();
+  const metodoPago=document.getElementById('vtMetodoPago')?.value||'Efectivo';
   if(!fecha||!sku||!cantidad){ toast('Completá fecha, SKU y cantidad.','err'); return; }
   const p=productos.find(x=>x.sku.toUpperCase()===sku);
   const dep=p?calcularStockDeposito(sku):0;
@@ -3892,9 +4062,9 @@ async function registrarVentaTienda(){
 
   const vData={fecha, canal:'Tienda', sku, producto:p?p.nombre:'', cantidad, precio, ingresoBruto:cantidad*precio, totalNeto:cantidad*precio, obs};
   const mData={fecha, tipo:'Venta', sku, producto:p?p.nombre:'', cantidad, costo:p?p.costo:0, precio, obs:obs||'Venta Tienda', origen:'Tienda'};
-  let sm;
+  let sm, sv;
   try{
-    const sv=await sbGuardar("venta",vData); ventas.unshift(Object.assign({},vData,sv||{}));
+    sv=await sbGuardar("venta",vData); ventas.unshift(Object.assign({},vData,sv||{}));
     sm=await sbGuardar("movimiento",mData); movimientos.unshift(Object.assign({},mData,sm||{}));
   }catch(e){ toast("Error guardando venta: "+e.message,"err"); return; }
   if(p && p.tipo==="combo"){
@@ -3907,6 +4077,23 @@ async function registrarVentaTienda(){
   document.getElementById('vtStockInfo').innerHTML='';
   renderVentas(); renderPanel(); renderStock(); renderAlertas(); renderMovimientos();
   toast('Venta registrada ✅ · Stock depósito actualizado.','ok');
+
+  // Preguntar si acreditamos el cobro en la Caja correspondiente (Efectivo o Mercado Pago)
+  if(metodoPago==='Efectivo' || metodoPago==='MercadoPago'){
+    const total=cantidad*precio;
+    const cajaNombre=metodoPago==='Efectivo'?'Efectivo':'Mercado Pago';
+    confirmCb=async()=>{
+      const data={fecha, caja:cajaNombre, tipo:'Ingreso', monto:total, concepto:'Venta Tienda '+sku, origen:'venta_tienda', referencia:(sv&&sv.id)?String(sv.id):''};
+      try{
+        const saved=await sbGuardar("cajamov",data);
+        cajaMovimientos.unshift(Object.assign({},data,saved||{}));
+        toast('$'+fmt(total)+' acreditado en Caja '+cajaNombre+' ✅','ok');
+      }catch(e){ toast('Error acreditando en caja: '+e.message,'err'); }
+    };
+    document.getElementById('confirmBtn').textContent='Sí, acreditar';
+    document.getElementById('confirmMsg').innerHTML=`¿Sumar <strong>$${fmt(total)}</strong> a <strong>Caja ${cajaNombre}</strong> por esta venta?`;
+    document.getElementById('modalConfirm').classList.add('show');
+  }
 }
 
 // ── Historial ──
@@ -3928,26 +4115,68 @@ async function registrarGasto(){
   document.getElementById("gMonto").value="";
   document.getElementById("gRecurrente").checked=false;
   toast("Gasto agregado ✅","ok");
-  renderRentabilidad();
+  renderGastosSeccion();
 }
 function eliminarGasto(idx){
   const g=gastos[idx];
   confirmCb=async()=>{
     if(g.id){ try{ await sbGuardar("deleteGasto",g.id); }catch(e){ toast("Error eliminando: "+e.message,"err"); return; } }
     gastos.splice(idx,1);
-    renderRentabilidad();
+    renderGastosSeccion();
     toast("Gasto eliminado.","ok");
   };
   document.getElementById("confirmMsg").textContent="¿Eliminar este gasto?";
   document.getElementById("modalConfirm").classList.add("show");
 }
-function renderGastos(listaFiltrada){
+// Suma de gastos en un rango de fechas — usado por Rentabilidad para descontar del período elegido ahí
+function sumaGastosPeriodo(desde, hasta){
+  return gastos.filter(g=>(!desde || new Date(g.fecha)>=desde)&&(!hasta || new Date(g.fecha)<=hasta))
+    .reduce((a,g)=>a+(Number(g.monto)||0),0);
+}
+function renderGastosSeccion(){
+  const q=(document.getElementById("gBuscar")?.value||"").toLowerCase().trim();
+  const cat=document.getElementById("gFiltroCategoria")?.value||"";
+  const periodoVal=document.getElementById("gFiltroPeriodo")?.value||"0";
+  const customWrap=document.getElementById("gFechaPersonalizada");
+
+  let desde=null, hasta=null;
+  if(periodoVal==="custom"){
+    if(customWrap) customWrap.style.display="flex";
+    const d=document.getElementById("gFiltroDesde")?.value;
+    const h=document.getElementById("gFiltroHasta")?.value;
+    if(d) desde=new Date(d);
+    if(h){ hasta=new Date(h); hasta.setHours(23,59,59,999); }
+  } else {
+    if(customWrap) customWrap.style.display="none";
+    const periodo=parseInt(periodoVal);
+    if(periodo>0){ desde=new Date(); desde.setDate(desde.getDate()-periodo); }
+  }
+
+  const lista=gastos.filter(g=>{
+    if(cat && g.categoria!==cat) return false;
+    if(desde && new Date(g.fecha)<desde) return false;
+    if(hasta && new Date(g.fecha)>hasta) return false;
+    if(q && !(g.descripcion||"").toLowerCase().includes(q)) return false;
+    return true;
+  }).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+
+  const statsEl=document.getElementById("gastosStats");
+  const total=lista.reduce((a,g)=>a+(Number(g.monto)||0),0);
+  const porCategoria={};
+  lista.forEach(g=>{ porCategoria[g.categoria]=(porCategoria[g.categoria]||0)+(Number(g.monto)||0); });
+  const catTop=Object.entries(porCategoria).sort((a,b)=>b[1]-a[1])[0];
+  if(statsEl) statsEl.innerHTML=`
+    <div class="stat-card"><div class="label">Gastos en el período</div><div class="value">${lista.length}</div></div>
+    <div class="stat-card"><div class="label">Total</div><div class="value" style="color:#ea7000;">$${fmt(total)}</div></div>
+    <div class="stat-card"><div class="label">Categoría con más peso</div><div class="value" style="font-size:16px;">${catTop?esc(catTop[0])+' ($'+fmt(catTop[1])+')':'—'}</div></div>
+    <div class="stat-card"><div class="label">Fijos mensuales activos</div><div class="value">${gastos.filter(g=>g.recurrente).length}</div></div>
+  `;
+
   const tbody=document.getElementById("gastosBody");
   const empty=document.getElementById("gastosEmpty");
-  if(!tbody) return 0;
-  if(!listaFiltrada.length){ tbody.innerHTML=""; if(empty) empty.style.display="block"; return 0; }
+  if(!lista.length){ if(tbody) tbody.innerHTML=""; if(empty) empty.style.display="block"; return; }
   if(empty) empty.style.display="none";
-  tbody.innerHTML=listaFiltrada.map(g=>{
+  if(tbody) tbody.innerHTML=lista.map(g=>{
     const realIdx=gastos.indexOf(g);
     return `<tr>
       <td>${g.fecha}</td>
@@ -3958,7 +4187,79 @@ function renderGastos(listaFiltrada){
       <td>${esAdmin()?`<button class="btn btn-danger btn-sm" onclick="eliminarGasto(${realIdx})">✕</button>`:""}</td>
     </tr>`;
   }).join("");
-  return listaFiltrada.reduce((a,g)=>a+(Number(g.monto)||0),0);
+}
+// ── Caja (Efectivo / Mercado Pago) ──
+function saldoCaja(caja){
+  return cajaMovimientos.filter(m=>m.caja===caja).reduce((a,m)=>a+(m.tipo==='Ingreso'?(Number(m.monto)||0):-(Number(m.monto)||0)),0);
+}
+async function registrarCajaMov(){
+  if(checkViewer("Registrar movimiento de caja")) return;
+  const fecha=document.getElementById("cmFecha").value || new Date().toISOString().split("T")[0];
+  const caja=document.getElementById("cmCaja").value;
+  const tipo=document.getElementById("cmTipo").value;
+  const concepto=document.getElementById("cmConcepto").value.trim();
+  const monto=parseFloat(document.getElementById("cmMonto").value)||0;
+  if(!monto){ toast("Ingresá un monto válido.","err"); return; }
+  const data={fecha, caja, tipo, monto, concepto, origen:"manual", referencia:""};
+  try{
+    const saved=await sbGuardar("cajamov",data);
+    cajaMovimientos.unshift(Object.assign({},data,saved||{}));
+  }catch(e){ toast("Error guardando el movimiento: "+e.message,"err"); return; }
+  document.getElementById("cmConcepto").value="";
+  document.getElementById("cmMonto").value="";
+  toast("Movimiento registrado ✅","ok");
+  renderCaja();
+}
+function eliminarCajaMov(idx){
+  const m=cajaMovimientos[idx];
+  confirmCb=async()=>{
+    if(m.id){ try{ await sbGuardar("deleteCajaMov",m.id); }catch(e){ toast("Error eliminando: "+e.message,"err"); return; } }
+    cajaMovimientos.splice(idx,1);
+    renderCaja();
+    toast("Movimiento eliminado.","ok");
+  };
+  document.getElementById("confirmBtn").textContent="Eliminar";
+  document.getElementById("confirmMsg").textContent="¿Eliminar este movimiento de caja? Esto no revierte ninguna venta, solo borra el registro de caja.";
+  document.getElementById("modalConfirm").classList.add("show");
+}
+function renderCaja(){
+  const saldoEf=saldoCaja("Efectivo");
+  const saldoMP=saldoCaja("MercadoPago");
+  const saldosEl=document.getElementById("cajaSaldos");
+  if(saldosEl) saldosEl.innerHTML=`
+    <div class="stat-card"><div class="label">💵 Efectivo</div><div class="value" style="color:${saldoEf>=0?'#16a34a':'#dc2626'};">$${fmt(saldoEf)}</div></div>
+    <div class="stat-card"><div class="label">💳 Mercado Pago</div><div class="value" style="color:${saldoMP>=0?'#16a34a':'#dc2626'};">$${fmt(saldoMP)}</div></div>
+    <div class="stat-card"><div class="label">Total en caja</div><div class="value" style="font-weight:800;">$${fmt(saldoEf+saldoMP)}</div></div>
+  `;
+
+  const cajaFiltro=document.getElementById("cmFiltroCaja")?.value||"";
+  const periodo=parseInt(document.getElementById("cmFiltroPeriodo")?.value||"0");
+  let desde=null;
+  if(periodo>0){ desde=new Date(); desde.setDate(desde.getDate()-periodo); }
+
+  const lista=cajaMovimientos.filter(m=>{
+    if(cajaFiltro && m.caja!==cajaFiltro) return false;
+    if(desde && new Date(m.fecha)<desde) return false;
+    return true;
+  }).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+
+  const tbody=document.getElementById("cajaBody");
+  const empty=document.getElementById("cajaEmpty");
+  if(!lista.length){ if(tbody) tbody.innerHTML=""; if(empty) empty.style.display="block"; return; }
+  if(empty) empty.style.display="none";
+  if(tbody) tbody.innerHTML=lista.map(m=>{
+    const realIdx=cajaMovimientos.indexOf(m);
+    const origenLabel=m.origen==='venta_tienda'?'🏪 Venta Tienda':(m.origen==='manual'?'Manual':esc(m.origen||''));
+    return `<tr>
+      <td>${m.fecha}</td>
+      <td><span class="badge ${m.caja==='Efectivo'?'badge-green':'badge-blue'}">${m.caja==='Efectivo'?'💵 Efectivo':'💳 Mercado Pago'}</span></td>
+      <td><span class="${m.tipo==='Ingreso'?'num-pos':'num-neg'}" style="font-weight:700;">${m.tipo}</span></td>
+      <td style="font-size:12px;">${esc(m.concepto||'')}</td>
+      <td style="font-size:11px;color:var(--text-soft);">${origenLabel}</td>
+      <td class="num ${m.tipo==='Ingreso'?'num-pos':'num-neg'}" style="font-weight:700;">${m.tipo==='Ingreso'?'+':'-'}$${fmt(m.monto)}</td>
+      <td>${esAdmin()?`<button class="btn btn-danger btn-sm" onclick="eliminarCajaMov(${realIdx})">✕</button>`:""}</td>
+    </tr>`;
+  }).join("");
 }
 function costoDeSku(sku){
   const skuUp=(sku||"").toUpperCase().trim();
@@ -4019,8 +4320,7 @@ function renderRentabilidad(){
   const margenPromedio = totRecibi? (totGanancia/totRecibi*100) : 0;
 
   // Gastos operativos del mismo período (no dependen del canal, son del negocio en general)
-  const listaGastos=gastos.filter(g=>(!desde || new Date(g.fecha)>=desde)&&(!hasta || new Date(g.fecha)<=hasta)).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
-  const totGastos=renderGastos(listaGastos);
+  const totGastos=sumaGastosPeriodo(desde, hasta);
   const gananciaNeta=totGanancia-totGastos;
 
   if(statsEl) statsEl.innerHTML=`
