@@ -3989,14 +3989,16 @@ async function confirmarImportML(){
   const seleccionadas=mlLineasPreview.filter((_,i)=>document.getElementById('mlCheck'+i)?.checked);
   if(!seleccionadas.length){ toast('Seleccioná al menos una línea.','err'); return; }
 
-  // Set de "nroVenta|sku" ya existentes, para chequear duplicados en O(1) en vez de recorrer todo `ventas` por cada línea
-  const existentes=new Set(ventas.filter(v=>v.canal==='ML').map(v=>v.nroVenta+'|'+v.sku.toUpperCase()));
+  // Set de "nroVenta|sku|cantidad|precio" ya existentes, para chequear duplicados en O(1) en vez de recorrer todo `ventas` por cada línea.
+  // Importante: incluye cantidad y precio (no solo nroVenta+sku), porque un carrito puede traer más de una línea
+  // con el mismo SKU (envíos parciales, el mismo producto agregado dos veces) y esas NO son duplicados reales.
+  const existentes=new Set(ventas.filter(v=>v.canal==='ML').map(v=>v.nroVenta+'|'+v.sku.toUpperCase()+'|'+v.cantidad+'|'+v.precio));
 
   const vDatas=[], mDatas=[];
   let warn=0, dupl=0;
   for(const l of seleccionadas){
     if(!l.sku){ warn++; continue; }
-    const key=l.nroVenta+'|'+l.sku.toUpperCase();
+    const key=l.nroVenta+'|'+l.sku.toUpperCase()+'|'+l.cantidad+'|'+l.precioUnit;
     if(existentes.has(key)){ dupl++; continue; }
     existentes.add(key); // por si el mismo archivo trae la línea repetida
     const p=productos.find(x=>x.sku.toUpperCase()===l.sku.toUpperCase());
@@ -6074,8 +6076,8 @@ async function sincronizarVentasML(){
         const precioUnit = item.unit_price||0;
         const totalNeto = orden.payments?.[0]?.net_received_amount||(precioUnit*cantidad*0.67);
 
-        // Verificar duplicado
-        const yaExiste = ventas.some(v=>v.nroVenta===nroVenta && v.sku===sku && v.canal==="ML");
+        // Verificar duplicado (incluye cantidad y precio: un carrito puede traer más de una línea con el mismo SKU)
+        const yaExiste = ventas.some(v=>v.nroVenta===nroVenta && v.sku===sku && v.canal==="ML" && v.cantidad===cantidad && v.precio===precioUnit);
         if(yaExiste){ dupli++; continue; }
 
         const fechaStr = (orden.date_created||"").split("T")[0];
