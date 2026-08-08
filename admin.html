@@ -1104,7 +1104,7 @@ tr:hover td{background:#fafbfc;}
             <div class="card-header">
               <h3>🧮 Rentabilidad por venta</h3>
               <div class="toolbar">
-                <input class="search-input" type="text" id="rentBuscar" placeholder="Buscar SKU o producto…" oninput="renderRentabilidad()">
+                <input class="search-input" type="text" id="rentBuscar" placeholder="Buscar SKU, producto o Nro. Venta…" oninput="renderRentabilidad()">
                 <select id="rentFiltroOrigen" onchange="renderRentabilidad()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
                   <option value="">Todos los canales</option>
                   <option value="ML">MercadoLibre</option>
@@ -4370,7 +4370,8 @@ function renderRentabilidad(){
     if(q){
       const enSku=(v.sku||"").toLowerCase().includes(q);
       const enNombre=(v.producto||"").toLowerCase().includes(q);
-      if(!enSku && !enNombre) return false;
+      const enMla=String(v.nroVenta||"").toLowerCase().includes(q);
+      if(!enSku && !enNombre && !enMla) return false;
     }
     return true;
   }).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
