@@ -1395,14 +1395,17 @@ tr:hover td{background:#fafbfc;}
 
             <!-- Sincronizar ventas -->
             <div class="card">
-              <div class="card-header"><h3>💸 Sincronizar ventas</h3></div>
+              <div class="card-header"><h3>💸 Sincronizar ventas <span class="badge badge-red" style="font-size:10px;">FUERA DE SERVICIO</span></h3></div>
               <div style="padding:16px;">
+                <div style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:13px;color:#7f1d1d;">
+                  ⚠️ <strong>Deshabilitado temporalmente.</strong> Se detectó que esta sincronización estaba generando ventas con números de orden incorrectos (no reales). Mientras se investiga el origen del problema, usá el <strong>"📂 Subir reporte ML"</strong> (importador de archivo, más abajo) para cargar tus ventas — ese método ya fue validado a fondo.
+                </div>
                 <p style="font-size:13px;color:var(--text-soft);margin-bottom:12px;">
                   Trae las ventas recientes de ML y las importa automáticamente.
                 </p>
                 <div class="form-group" style="margin-bottom:12px;">
                   <label>Días a traer</label>
-                  <select id="mlDiasVentas" style="padding:9px;border:1.5px solid var(--border);border-radius:7px;font-size:13px;width:100%;">
+                  <select id="mlDiasVentas" style="padding:9px;border:1.5px solid var(--border);border-radius:7px;font-size:13px;width:100%;" disabled>
                     <option value="7">Últimos 7 días</option>
                     <option value="15">Últimos 15 días</option>
                     <option value="30">Últimos 30 días</option>
@@ -1413,14 +1416,14 @@ tr:hover td{background:#fafbfc;}
                 </div>
                 <div class="form-group" style="margin-bottom:12px;">
                   <label>Margen de estabilización <span style="font-weight:400;color:var(--text-soft);">— no trae ventas más recientes que esto, por si todavía pueden cancelarse</span></label>
-                  <select id="mlBufferHoras" style="padding:9px;border:1.5px solid var(--border);border-radius:7px;font-size:13px;width:100%;">
+                  <select id="mlBufferHoras" style="padding:9px;border:1.5px solid var(--border);border-radius:7px;font-size:13px;width:100%;" disabled>
                     <option value="0">Sin espera (traer todo, incluidas las de ahora)</option>
                     <option value="24">24 horas</option>
                     <option value="48" selected>48 horas (recomendado)</option>
                     <option value="72">72 horas</option>
                   </select>
                 </div>
-                <button class="btn btn-success" onclick="sincronizarVentasML()">⬇️ Importar ventas</button>
+                <button class="btn btn-ghost" disabled title="Deshabilitado hasta resolver el bug de números de venta incorrectos" style="opacity:0.5;cursor:not-allowed;">⬇️ Importar ventas (deshabilitado)</button>
                 <div id="mlVentasStatus" style="margin-top:10px;font-size:12px;color:var(--text-soft);"></div>
               </div>
             </div>
@@ -6077,6 +6080,12 @@ async function sincronizarVentasML(){
       if(offset>10000) break; // corte de seguridad ante rangos enormes
     }
     logML("Órdenes encontradas: "+ordenes.length+(bufferHoras>0?" (excluyendo últimas "+bufferHoras+"hs por margen de estabilización)":""));
+    // DIAGNÓSTICO (para cuando se reactive esta función): loguea la estructura cruda de las primeras órdenes,
+    // para poder confirmar si "id" difiere de "pack_id" o si hay algo raro en order_items.
+    console.log("🔍 Diagnóstico sincronizarVentasML — primeras 5 órdenes crudas:", ordenes.slice(0,5).map(o=>({
+      id:o.id, pack_id:o.pack_id, date_created:o.date_created, status:o.status,
+      order_items:(o.order_items||[]).map(it=>({sku:it.item?.seller_sku, item_id:it.item?.id, qty:it.quantity, unit_price:it.unit_price}))
+    })));
 
     let nuevas=0, dupli=0;
     mostrarCargando(true);
