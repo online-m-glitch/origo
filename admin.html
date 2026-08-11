@@ -369,6 +369,9 @@ tr:hover td{background:#fafbfc;}
     <div class="nav-item" onclick="mostrarSeccion('caja')">
       <span class="icon">💵</span> Caja
     </div>
+    <div class="nav-item" onclick="mostrarSeccion('devoluciones')">
+      <span class="icon">↩️</span> Devoluciones / Garantías
+    </div>
     <div class="nav-item" onclick="mostrarSeccion('cuentacorriente')">
       <span class="icon">🏭</span> Cuenta Corriente
     </div>
@@ -830,13 +833,19 @@ tr:hover td{background:#fafbfc;}
               </div>
             </div>
 
+            <!-- Banner modo edición -->
+            <div id="cEditandoBanner" style="display:none;background:#fff7ed;border:1.5px solid #fdba74;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#9a3412;display:flex;align-items:center;justify-content:space-between;">
+              <span>✏️ Editando una compra existente — se va a actualizar en vez de crear una nueva.</span>
+              <button class="btn btn-ghost btn-sm" onclick="cancelarEdicionCompra()">✕ Cancelar edición</button>
+            </div>
+
             <!-- Total y botón guardar -->
             <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:#f0f4ff;border-radius:8px;border:1.5px solid #c7d9f8;">
               <div style="font-size:15px;font-weight:700;color:#0d2259;">
                 Total remito: <span id="cTotal" style="color:var(--ml-blue);">$0</span>
                 &nbsp;&nbsp;<span style="font-size:12px;font-weight:400;color:var(--text-soft);" id="cLinCount">0 productos</span>
               </div>
-              <button class="btn btn-success" onclick="guardarCompra()" style="font-size:14px;padding:10px 24px;">✔ Confirmar compra</button>
+              <button class="btn btn-success" onclick="guardarCompra()" style="font-size:14px;padding:10px 24px;" id="cBtnGuardar">✔ Confirmar compra</button>
             </div>
           </div>
         </div>
@@ -1283,6 +1292,144 @@ tr:hover td{background:#fafbfc;}
             </table>
             <div class="empty" id="cajaEmpty" style="display:none;"><div class="icon">💵</div><p>Sin movimientos de caja todavía.</p></div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== DEVOLUCIONES / GARANTÍAS ========== -->
+    <div id="sec-devoluciones" class="section">
+      <div class="page-header">
+        <div><h2>Devoluciones / Garantías</h2><div class="sub">Ingreso de devoluciones de clientes y salida como garantía al proveedor</div></div>
+      </div>
+      <div style="padding:24px;">
+        <div class="stats-grid" id="devStats" style="margin-bottom:20px;"></div>
+
+        <div class="card" style="margin-bottom:20px;">
+          <div class="card-header"><h3>↩️ Registrar devolución (ingreso)</h3></div>
+          <div style="padding:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+            <div class="form-group" style="margin:0;">
+              <label style="font-size:11px;">Fecha</label>
+              <input type="date" id="devFecha" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label style="font-size:11px;">SKU</label>
+              <input type="text" id="devSku" list="skuList" placeholder="Ej: PR2" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;width:130px;text-transform:uppercase;" oninput="autocompletarDevSku(this.value)">
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label style="font-size:11px;">Producto</label>
+              <input type="text" id="devProducto" readonly style="padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;width:180px;background:#f8f9fa;">
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label style="font-size:11px;">Cantidad</label>
+              <input type="number" id="devCantidad" value="1" min="1" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;width:80px;">
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label style="font-size:11px;">Motivo</label>
+              <select id="devMotivo" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                <option value="Defectuoso">Defectuoso</option>
+                <option value="No conforme">No conforme (arrepentimiento)</option>
+                <option value="Error de envío">Error de envío</option>
+                <option value="Dañado en transporte">Dañado en transporte</option>
+                <option value="Otro">Otro</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label style="font-size:11px;">Canal</label>
+              <select id="devCanal" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                <option value="ML">MercadoLibre</option>
+                <option value="Tienda">Tienda</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label style="font-size:11px;">Nro. Venta (opcional)</label>
+              <input type="text" id="devNroVenta" placeholder="Opcional" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;width:140px;">
+            </div>
+            <div class="form-group" style="margin:0;flex:1;min-width:140px;">
+              <label style="font-size:11px;">Observaciones</label>
+              <input type="text" id="devObs" placeholder="Opcional" style="width:100%;padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+            </div>
+            <button class="btn btn-primary" onclick="registrarDevolucion()">+ Registrar ingreso</button>
+          </div>
+          <div style="padding:0 16px 12px;font-size:11px;color:var(--text-soft);">Al registrar, se suma 1 movimiento de "Ingreso" al Stock Depósito (el producto vuelve a estar físicamente en tu poder, aunque esté para revisar/garantía).</div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>📋 Devoluciones y garantías</h3>
+            <div class="toolbar">
+              <input class="search-input" type="text" id="devBuscar" placeholder="Buscar SKU o producto…" oninput="renderDevoluciones()">
+              <select id="devFiltroEstado" onchange="renderDevoluciones()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                <option value="">Todos los estados</option>
+                <option value="En depósito">En depósito</option>
+                <option value="Enviado a garantía">Enviado a garantía</option>
+                <option value="Resuelto">Resuelto</option>
+              </select>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Ingreso</th><th>SKU</th><th>Producto</th><th>Cant.</th><th>Motivo</th><th>Canal</th><th>Nro. Venta</th><th>Estado</th><th>Proveedor / Resultado</th><th>Acciones</th></tr></thead>
+              <tbody id="devBody"></tbody>
+            </table>
+            <div class="empty" id="devEmpty" style="display:none;"><div class="icon">↩️</div><p>Sin devoluciones cargadas.</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal enviar a garantía -->
+    <div class="overlay" id="modalGarantia">
+      <div class="modal modal-sm">
+        <h3>📦 Enviar a garantía</h3>
+        <div class="form-group">
+          <label>Fecha de envío</label>
+          <input type="date" id="garFecha">
+        </div>
+        <div class="form-group">
+          <label>Proveedor</label>
+          <input type="text" id="garProveedor" list="provListProd" placeholder="Ej: ANTHAY">
+        </div>
+        <div class="form-group">
+          <label>Observaciones</label>
+          <input type="text" id="garObs" placeholder="Opcional">
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" onclick="document.getElementById('modalGarantia').classList.remove('show')">Cancelar</button>
+          <button class="btn btn-primary" onclick="confirmarEnvioGarantia()">Confirmar envío</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal resolver garantía -->
+    <div class="overlay" id="modalResolverGarantia">
+      <div class="modal modal-sm">
+        <h3>✅ Resolver garantía</h3>
+        <div class="form-group">
+          <label>Fecha de resolución</label>
+          <input type="date" id="resFecha">
+        </div>
+        <div class="form-group">
+          <label>Resultado</label>
+          <select id="resResultado" onchange="toggleResCreditoWrap()">
+            <option value="Reemplazo">Reemplazo (vuelve stock nuevo)</option>
+            <option value="Reparado">Reparado (vuelve el mismo stock)</option>
+            <option value="Credito">Crédito a favor (se descuenta de lo que le debo al proveedor)</option>
+            <option value="Reembolso">Reembolso en efectivo/transferencia (no suma stock)</option>
+            <option value="Rechazado">Rechazado por el proveedor (no suma stock)</option>
+          </select>
+        </div>
+        <div class="form-group" id="resCreditoWrap" style="display:none;">
+          <label>Importe del crédito ($)</label>
+          <input type="number" id="resCreditoImporte" placeholder="0">
+          <div style="font-size:11px;color:var(--text-soft);margin-top:4px;">Se va a registrar como un "Pago" en la Cuenta Corriente de ese proveedor, reduciendo lo que le debés.</div>
+        </div>
+        <div class="form-group">
+          <label>Observaciones</label>
+          <input type="text" id="resObs" placeholder="Opcional">
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" onclick="document.getElementById('modalResolverGarantia').classList.remove('show')">Cancelar</button>
+          <button class="btn btn-primary" onclick="confirmarResolverGarantia()">Confirmar resolución</button>
         </div>
       </div>
     </div>
@@ -2045,9 +2192,11 @@ let productoImagenesEditor = []; // [urlOrBase64, ...] — estado de la galería
 let confirmCb = null;
 let compras = [];
 let lineasCompra = []; // líneas del remito en edición
+let editandoCompraIdx = -1; // -1 = creando nueva compra; >=0 = editando compras[idx]
 let ventas = [];
 let gastos = []; // gastos operativos no asociados a un producto (monotributo, personal, insumos, factura ML, etc.)
 let cajaMovimientos = []; // movimientos de caja (Efectivo, Mercado Pago)
+let devoluciones = []; // devoluciones de clientes / garantías con proveedores
 let pedidos = [];
 let pedidosProv = [];
 let proveedoresDB = [];
@@ -2172,6 +2321,10 @@ async function cargarDatos(){
       const cms = await sbGet("caja_movimientos","order=fecha.desc");
       cajaMovimientos = cms||[];
     }catch(e){ cajaMovimientos=[]; }
+    try{
+      const dvs = await sbGet("devoluciones_garantias","order=fecha_ingreso.desc");
+      devoluciones = dvs||[];
+    }catch(e){ devoluciones=[]; }
     // Proveedores
     try{
       const provs = await sbGet("proveedores","order=nombre.asc");
@@ -2220,6 +2373,7 @@ async function sbGuardar(tipo, data){
     if(tipo==="mlfee")         { await sbUpsert("ml_fees",{sku:data.sku, ml_item_id:data.ml_item_id, fee_amount:data.fee_amount, fee_pct:data.fee_pct, shipping_cost:data.shipping_cost||0, fee_fixed:data.fee_fixed||0, ml_price:data.ml_price||0, raw:data.raw, updated_at:new Date().toISOString()}); }
     if(tipo==="config")        { await sbUpsert("app_config",{key:data.key, value:data.value, updated_at:new Date().toISOString()}); }
     if(tipo==="compra")        { const r=await sbInsert("compras",Object.assign({},data,{lineas:JSON.stringify(data.lineas)})); return r; }
+    if(tipo==="updateCompra")  { await sbUpdate("compras","id=eq."+data.id, Object.assign({},data.campos, data.campos.lineas?{lineas:JSON.stringify(data.campos.lineas)}:{})); }
     if(tipo==="deleteCompra")  { await sbDelete("compras","id=eq."+data); }
     if(tipo==="venta")         { const r=await sbInsert("ventas",data); return r; }
     if(tipo==="deleteVenta")   { await sbDelete("ventas","id=eq."+data); }
@@ -2227,6 +2381,9 @@ async function sbGuardar(tipo, data){
     if(tipo==="deleteGasto")   { await sbDelete("gastos","id=eq."+data); }
     if(tipo==="cajamov")       { const r=await sbInsert("caja_movimientos",data); return r; }
     if(tipo==="deleteCajaMov") { await sbDelete("caja_movimientos","id=eq."+data); }
+    if(tipo==="devolucion")       { const r=await sbInsert("devoluciones_garantias",data); return r; }
+    if(tipo==="updateDevolucion") { await sbUpdate("devoluciones_garantias","id=eq."+data.id, data.campos); }
+    if(tipo==="deleteDevolucion") { await sbDelete("devoluciones_garantias","id=eq."+data); }
     if(tipo==="updatePedido")  { await sbUpdate ? sbUpdate("pedidos","id=eq."+data.id,{estado:data.estado}) : null; }
     if(tipo==="deletePedido")  { await sbDelete("pedidos","id=eq."+data); }
     if(tipo==="reset"){
@@ -3434,13 +3591,14 @@ async function guardarCompra(){
   if(checkViewer("Registrar compras")) return;
   if(_guardandoCompra){ toast("Espera, guardando...","err"); return; }
   _guardandoCompra = true;
-  const btn = document.querySelector("#sec-compras .btn-success");
+  const btn = document.getElementById("cBtnGuardar");
+  const esEdicion = editandoCompraIdx>=0;
   if(btn){ btn.disabled=true; btn.textContent="Guardando…"; }
 
   const resetBtn = ()=>{
     _guardandoCompra = false;
-    const b = document.querySelector("#sec-compras .btn-success");
-    if(b){ b.disabled=false; b.textContent="✔ Confirmar compra"; }
+    const b = document.getElementById("cBtnGuardar");
+    if(b){ b.disabled=false; b.textContent = esEdicion?"💾 Actualizar compra":"✔ Confirmar compra"; }
   };
 
   const fecha = document.getElementById("cFecha").value;
@@ -3455,6 +3613,61 @@ async function guardarCompra(){
 
   const total = lineasCompra.reduce((a,l)=>a+(l.cantidad*l.costo),0);
   const lineasCopia = [...lineasCompra];
+
+  if(esEdicion){
+    const c = compras[editandoCompraIdx];
+    // Chequeo de seguridad: por si en el medio se cargó un pago
+    if(pagosDeCompra(c).length){
+      resetBtn();
+      toast("Esta compra ya tiene un pago registrado — no se puede actualizar. Eliminá el pago primero.","err",6000);
+      return;
+    }
+    try{
+      // 1. Borrar los movimientos (Ingreso) viejos de esta compra
+      const obsViejo = "Compra "+(c.factura||"s/n")+" · "+c.proveedor;
+      const movsViejos = movimientos.filter(m=>m.tipo==="Ingreso" && m.obs===obsViejo);
+      for(const m of movsViejos){
+        if(m.id) await sbGuardar("deleteMovimiento", m.id);
+      }
+      movimientos = movimientos.filter(m=>!(m.tipo==="Ingreso" && m.obs===obsViejo));
+
+      // 2. Borrar la entrada vieja de Cuenta Corriente
+      const ccVieja = cuentaCorriente.find(m=>m.compraId===c.id);
+      if(ccVieja && ccVieja.id){ await sbGuardar("deleteCc", ccVieja.id); }
+      cuentaCorriente = cuentaCorriente.filter(m=>m.compraId!==c.id);
+
+      // 3. Actualizar la compra en sí
+      const campos = { fecha, proveedor, factura, obs, formaPago, total, lineas: lineasCopia };
+      await sbGuardar("updateCompra", { id:c.id, campos });
+      Object.assign(c, campos);
+
+      // 4. Recrear movimientos (Ingreso) con los datos nuevos
+      for(const l of lineasCopia){
+        const p=productos.find(x=>x.sku.toUpperCase()===l.sku);
+        const mov={fecha, tipo:"Ingreso", sku:l.sku, producto:l.producto, cantidad:l.cantidad,
+          costo:l.costo, precio:p?p.precio:0, obs:"Compra "+(factura||"s/n")+" · "+proveedor, origen:""};
+        const saved=await sbGuardar("movimiento",mov);
+        movimientos.unshift(Object.assign({},mov,saved||{}));
+      }
+
+      // 5. Recrear la entrada de Cuenta Corriente
+      const ccData={fecha, tipo:"Compra", proveedor, factura,
+        descripcion:lineasCopia.length+" producto"+(lineasCopia.length>1?"s":"")+" · "+(obs||factura||"Remito"),
+        importe:total, formaPago, compraId:c.id};
+      const savedCC=await sbGuardar("cc",ccData);
+      cuentaCorriente.unshift(Object.assign({},ccData,savedCC||{}));
+
+      cancelarEdicionCompra();
+      actualizarProvLists();
+      renderPanel(); renderStock(); renderAlertas(); renderMovimientos(); renderCC(); renderCompras();
+      toast("Compra actualizada ✅ · $"+fmt(total)+" → CC y Movimientos recalculados","ok",4500);
+    }catch(e){
+      toast("Error actualizando compra: "+e.message,"err");
+    }finally{
+      resetBtn();
+    }
+    return;
+  }
 
   const compra = {
     id: Date.now(),
@@ -3527,10 +3740,61 @@ function renderCompras(){
       <td style="font-size:12px;color:var(--text-soft);">${esc(c.obs||"")}</td>
       <td>
         <button class="btn btn-ghost btn-sm" onclick="verDetalleCompra(${realIdx})" title="Ver detalle">🔍</button>
+        ${esAdmin()?`<button class="btn btn-ghost btn-sm" onclick="editarCompra(${realIdx})" title="Editar">✏️</button>`:""}
         ${esAdmin()?`<button class="btn btn-danger btn-sm" onclick="eliminarCompra(${realIdx})" title="Eliminar">✕</button>`:""}
       </td>
     </tr>`;
   }).join("");
+}
+
+// Pagos de Cuenta Corriente vinculados a una compra puntual (se relacionan por proveedor + número de factura)
+function pagosDeCompra(c){
+  if(!c.factura) return []; // sin número de factura no hay forma confiable de vincular pagos
+  return cuentaCorriente.filter(m=>m.tipo==="Pago" && m.proveedor===c.proveedor && m.factura===c.factura);
+}
+
+function editarCompra(idx){
+  const c = compras[idx];
+  const pagos = pagosDeCompra(c);
+  if(pagos.length){
+    const detallePagos = pagos.map(p=>`• ${p.fecha} — $${fmt(p.importe)} (${esc(p.formaPago||'')})`).join('<br>');
+    document.getElementById("confirmMsg").innerHTML = `
+      <div style="text-align:left;">
+        <div style="font-size:15px;font-weight:700;color:#dc2626;margin-bottom:10px;">⚠️ No se puede editar todavía</div>
+        <div style="font-size:13px;margin-bottom:10px;">Esta compra (factura <strong>${esc(c.factura)}</strong> · ${esc(c.proveedor)}) ya tiene ${pagos.length} pago(s) registrado(s) en Cuenta Corriente:</div>
+        <div style="font-size:13px;background:#f8f9fa;padding:10px;border-radius:6px;margin-bottom:10px;">${detallePagos}</div>
+        <div style="font-size:12px;color:var(--text-soft);">Para editar: andá a Cuenta Corriente, eliminá ese/esos pago(s), volvé acá a editar la compra, y después volvé a registrar el pago.</div>
+      </div>`;
+    document.getElementById("confirmBtn").textContent="Ir a Cuenta Corriente";
+    confirmCb = ()=>{ mostrarSeccion('cuentacorriente'); };
+    document.getElementById("modalConfirm").classList.add("show");
+    return;
+  }
+
+  // Sin pagos: habilitar edición
+  editandoCompraIdx = idx;
+  document.getElementById("cFecha").value = c.fecha;
+  document.getElementById("cProveedor").value = c.proveedor;
+  document.getElementById("cFactura").value = c.factura||"";
+  document.getElementById("cObs").value = c.obs||"";
+  document.getElementById("cFormaPago").value = c.formaPago;
+  lineasCompra = JSON.parse(JSON.stringify(c.lineas));
+  renderLineasCompra();
+  document.getElementById("cEditandoBanner").style.display="flex";
+  document.getElementById("cBtnGuardar").textContent="💾 Actualizar compra";
+  document.getElementById("sec-compras")?.scrollIntoView({behavior:"smooth", block:"start"});
+  toast("Editando compra — modificá lo que necesites y confirmá abajo.","ok",4000);
+}
+function cancelarEdicionCompra(){
+  editandoCompraIdx = -1;
+  lineasCompra = [];
+  renderLineasCompra();
+  document.getElementById("cProveedor").value="";
+  document.getElementById("cFactura").value="";
+  document.getElementById("cObs").value="";
+  document.getElementById("cFormaPago").value="Efectivo";
+  document.getElementById("cEditandoBanner").style.display="none";
+  document.getElementById("cBtnGuardar").textContent="✔ Confirmar compra";
 }
 
 function verDetalleCompra(idx){
@@ -3617,6 +3881,7 @@ async function mostrarSeccion(id){
   if(id==="ventas"){ renderVentas(); renderVentasML(); renderVentasTienda(); }
   if(id==="gastos"){ renderGastosSeccion(); }
   if(id==="caja"){ renderCaja(); }
+  if(id==="devoluciones"){ renderDevoluciones(); }
   if(id==="pedidos"){ renderPedidos(); }
   if(id==="pedidosprov"){ renderPedidosProv(); }
   if(id==="proveedores"){ renderProveedores(); }
@@ -4313,6 +4578,201 @@ function renderCaja(){
       <td style="font-size:11px;color:var(--text-soft);">${origenLabel}</td>
       <td class="num ${m.tipo==='Ingreso'?'num-pos':'num-neg'}" style="font-weight:700;">${m.tipo==='Ingreso'?'+':'-'}$${fmt(m.monto)}</td>
       <td>${esAdmin()?`<button class="btn btn-danger btn-sm" onclick="eliminarCajaMov(${realIdx})">✕</button>`:""}</td>
+    </tr>`;
+  }).join("");
+}
+// ── Devoluciones / Garantías ──
+function autocompletarDevSku(valor){
+  const sku=(valor||"").trim().toUpperCase();
+  const p=productos.find(x=>x.sku.toUpperCase()===sku);
+  document.getElementById("devProducto").value=p?p.nombre:"";
+}
+async function registrarDevolucion(){
+  if(checkViewer("Registrar devolución")) return;
+  const fecha=document.getElementById("devFecha").value || new Date().toISOString().split("T")[0];
+  const sku=document.getElementById("devSku").value.trim().toUpperCase();
+  const cantidad=parseInt(document.getElementById("devCantidad").value)||1;
+  const motivo=document.getElementById("devMotivo").value;
+  const canal=document.getElementById("devCanal").value;
+  const nroVenta=document.getElementById("devNroVenta").value.trim();
+  const obs=document.getElementById("devObs").value.trim();
+  if(!sku){ toast("Ingresá el SKU.","err"); return; }
+  const p=productos.find(x=>x.sku.toUpperCase()===sku);
+  const data={fecha_ingreso:fecha, sku, producto:p?p.nombre:"", cantidad, motivo, canal, nroVenta, estado:"En depósito", obs};
+  try{
+    const saved=await sbGuardar("devolucion",data);
+    devoluciones.unshift(Object.assign({},data,saved||{}));
+  }catch(e){ toast("Error guardando la devolución: "+e.message,"err"); return; }
+  // Suma stock: el producto vuelve a estar físicamente en el depósito
+  const mData={fecha, tipo:"Ingreso", sku, producto:p?p.nombre:"", cantidad, costo:p?p.costo:0, precio:0, obs:"Devolución cliente ("+motivo+")"+(nroVenta?" — Venta #"+nroVenta:""), origen:""};
+  try{
+    const sm=await sbGuardar("movimiento",mData);
+    movimientos.unshift(Object.assign({},mData,sm||{}));
+  }catch(e){ toast("Devolución guardada, pero hubo un error sumando el stock: "+e.message,"err"); }
+
+  ["devSku","devProducto","devCantidad","devNroVenta","devObs"].forEach(id=>document.getElementById(id).value=(id==="devCantidad"?"1":""));
+  toast("Devolución registrada ✅ · Stock depósito actualizado.","ok");
+  renderDevoluciones(); renderStock(); renderAlertas(); renderMovimientos(); renderPanel();
+}
+
+let devIdxActual=null;
+function abrirModalGarantia(idx){
+  devIdxActual=idx;
+  document.getElementById("garFecha").value=new Date().toISOString().split("T")[0];
+  document.getElementById("garProveedor").value=devoluciones[idx].proveedor||"";
+  document.getElementById("garObs").value="";
+  document.getElementById("modalGarantia").classList.add("show");
+}
+async function confirmarEnvioGarantia(){
+  if(devIdxActual===null) return;
+  const dev=devoluciones[devIdxActual];
+  const fecha=document.getElementById("garFecha").value || new Date().toISOString().split("T")[0];
+  const proveedor=document.getElementById("garProveedor").value.trim();
+  const obsExtra=document.getElementById("garObs").value.trim();
+  if(!proveedor){ toast("Ingresá el proveedor.","err"); return; }
+
+  const campos={estado:"Enviado a garantía", proveedor, fecha_garantia:fecha};
+  try{
+    if(dev.id) await sbGuardar("updateDevolucion",{id:dev.id, campos});
+    Object.assign(dev, campos);
+  }catch(e){ toast("Error actualizando: "+e.message,"err"); return; }
+
+  // Resta stock: el producto sale físicamente hacia el proveedor
+  const p=productos.find(x=>x.sku.toUpperCase()===dev.sku.toUpperCase());
+  const mData={fecha, tipo:"Baja", sku:dev.sku, producto:dev.producto||"", cantidad:dev.cantidad, costo:p?p.costo:0, precio:0, obs:"Enviado a garantía a "+proveedor+(obsExtra?" — "+obsExtra:""), origen:""};
+  try{
+    const sm=await sbGuardar("movimiento",mData);
+    movimientos.unshift(Object.assign({},mData,sm||{}));
+  }catch(e){ toast("Actualizado, pero hubo un error restando el stock: "+e.message,"err"); }
+
+  document.getElementById("modalGarantia").classList.remove("show");
+  devIdxActual=null;
+  toast("Enviado a garantía ✅ · Stock depósito actualizado.","ok");
+  renderDevoluciones(); renderStock(); renderAlertas(); renderMovimientos(); renderPanel();
+}
+
+function toggleResCreditoWrap(){
+  const esCredito=document.getElementById("resResultado").value==="Credito";
+  document.getElementById("resCreditoWrap").style.display=esCredito?"block":"none";
+}
+function abrirModalResolver(idx){
+  devIdxActual=idx;
+  const dev=devoluciones[idx];
+  const p=productos.find(x=>x.sku.toUpperCase()===(dev.sku||"").toUpperCase());
+  const importeSugerido=(p?p.costo:0)*(dev.cantidad||1);
+  document.getElementById("resFecha").value=new Date().toISOString().split("T")[0];
+  document.getElementById("resResultado").value="Reemplazo";
+  document.getElementById("resObs").value="";
+  document.getElementById("resCreditoImporte").value=importeSugerido||"";
+  toggleResCreditoWrap();
+  document.getElementById("modalResolverGarantia").classList.add("show");
+}
+async function confirmarResolverGarantia(){
+  if(devIdxActual===null) return;
+  const dev=devoluciones[devIdxActual];
+  const fecha=document.getElementById("resFecha").value || new Date().toISOString().split("T")[0];
+  const resultado=document.getElementById("resResultado").value;
+  const obsExtra=document.getElementById("resObs").value.trim();
+
+  const campos={estado:"Resuelto", fecha_resolucion:fecha, resultado};
+  try{
+    if(dev.id) await sbGuardar("updateDevolucion",{id:dev.id, campos});
+    Object.assign(dev, campos);
+  }catch(e){ toast("Error actualizando: "+e.message,"err"); return; }
+
+  // Si hubo reemplazo o reparación, vuelve a sumar stock
+  if(resultado==="Reemplazo" || resultado==="Reparado"){
+    const p=productos.find(x=>x.sku.toUpperCase()===dev.sku.toUpperCase());
+    const mData={fecha, tipo:"Ingreso", sku:dev.sku, producto:dev.producto||"", cantidad:dev.cantidad, costo:p?p.costo:0, precio:0, obs:"Garantía resuelta ("+resultado+")"+(obsExtra?" — "+obsExtra:""), origen:""};
+    try{
+      const sm=await sbGuardar("movimiento",mData);
+      movimientos.unshift(Object.assign({},mData,sm||{}));
+    }catch(e){ toast("Actualizado, pero hubo un error sumando el stock: "+e.message,"err"); }
+  }
+
+  // Si fue crédito a favor del proveedor, se registra como "Pago" en Cuenta Corriente (reduce lo que le debés)
+  if(resultado==="Credito"){
+    const importe=parseFloat(document.getElementById("resCreditoImporte").value)||0;
+    if(!dev.proveedor){ toast("Esta devolución no tiene proveedor cargado (revisá el envío a garantía).","err"); }
+    else if(!importe){ toast("Ingresá el importe del crédito.","err"); }
+    else{
+      const ccData={fecha, tipo:"Pago", proveedor:dev.proveedor.toUpperCase(), factura:"", descripcion:"Crédito por garantía — "+dev.sku+(obsExtra?" — "+obsExtra:""), importe};
+      try{
+        const saved=await sbGuardar("cc",ccData);
+        cuentaCorriente.unshift(Object.assign({},ccData,saved||{}));
+        actualizarProvLists();
+        toast("Crédito de $"+fmt(importe)+" registrado en Cuenta Corriente de "+dev.proveedor+" ✅","ok",5000);
+      }catch(e){ toast("Actualizado, pero hubo un error registrando el crédito en Cuenta Corriente: "+e.message,"err"); }
+    }
+  }
+
+  document.getElementById("modalResolverGarantia").classList.remove("show");
+  devIdxActual=null;
+  toast("Garantía resuelta ✅","ok");
+  renderDevoluciones(); renderStock(); renderAlertas(); renderMovimientos(); renderPanel(); renderCC();
+}
+
+function eliminarDevolucion(idx){
+  const dev=devoluciones[idx];
+  confirmCb=async()=>{
+    if(dev.id){ try{ await sbGuardar("deleteDevolucion",dev.id); }catch(e){ toast("Error eliminando: "+e.message,"err"); return; } }
+    devoluciones.splice(idx,1);
+    renderDevoluciones();
+    toast("Registro eliminado. (No revierte los movimientos de stock ya generados — revisalos en Movimientos si hace falta.)","ok",6000);
+  };
+  document.getElementById("confirmBtn").textContent="Eliminar";
+  document.getElementById("confirmMsg").textContent="¿Eliminar este registro de devolución/garantía?";
+  document.getElementById("modalConfirm").classList.add("show");
+}
+
+function renderDevoluciones(){
+  const q=(document.getElementById("devBuscar")?.value||"").toLowerCase().trim();
+  const filtroEstado=document.getElementById("devFiltroEstado")?.value||"";
+
+  const lista=devoluciones.filter(d=>{
+    if(filtroEstado && d.estado!==filtroEstado) return false;
+    if(q && !(d.sku||"").toLowerCase().includes(q) && !(d.producto||"").toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  const enDeposito=devoluciones.filter(d=>d.estado==="En depósito").length;
+  const enGarantia=devoluciones.filter(d=>d.estado==="Enviado a garantía").length;
+  const resueltas=devoluciones.filter(d=>d.estado==="Resuelto").length;
+  const statsEl=document.getElementById("devStats");
+  if(statsEl) statsEl.innerHTML=`
+    <div class="stat-card"><div class="label">Total registradas</div><div class="value">${devoluciones.length}</div></div>
+    <div class="stat-card"><div class="label">En depósito</div><div class="value" style="color:#ea7000;">${enDeposito}</div></div>
+    <div class="stat-card"><div class="label">Enviadas a garantía</div><div class="value blue">${enGarantia}</div></div>
+    <div class="stat-card"><div class="label">Resueltas</div><div class="value green">${resueltas}</div></div>
+  `;
+
+  const tbody=document.getElementById("devBody");
+  const empty=document.getElementById("devEmpty");
+  if(!lista.length){ if(tbody) tbody.innerHTML=""; if(empty) empty.style.display="block"; return; }
+  if(empty) empty.style.display="none";
+
+  if(tbody) tbody.innerHTML=lista.map(d=>{
+    const realIdx=devoluciones.indexOf(d);
+    const badgeCls=d.estado==="En depósito"?"badge-orange":d.estado==="Enviado a garantía"?"badge-blue":"badge-green";
+    let colProvResultado="—";
+    const resultadoLabel={Reemplazo:"Reemplazo",Reparado:"Reparado",Credito:"💳 Crédito a favor",Reembolso:"Reembolso",Rechazado:"Rechazado"};
+    if(d.estado==="Enviado a garantía") colProvResultado=esc(d.proveedor||"");
+    if(d.estado==="Resuelto") colProvResultado=esc(d.proveedor||"")+" · "+esc(resultadoLabel[d.resultado]||d.resultado||"");
+    let acciones="";
+    if(d.estado==="En depósito") acciones+=`<button class="btn btn-ghost btn-sm" onclick="abrirModalGarantia(${realIdx})">📦 Enviar a garantía</button> `;
+    if(d.estado==="Enviado a garantía") acciones+=`<button class="btn btn-ghost btn-sm" onclick="abrirModalResolver(${realIdx})">✅ Resolver</button> `;
+    if(esAdmin()) acciones+=`<button class="btn btn-danger btn-sm" onclick="eliminarDevolucion(${realIdx})">✕</button>`;
+    return `<tr>
+      <td>${d.fecha_ingreso}</td>
+      <td><span class="sku-tag">${esc(d.sku)}</span></td>
+      <td style="max-width:160px;">${esc(d.producto||'')}</td>
+      <td class="num">${d.cantidad}</td>
+      <td style="font-size:12px;">${esc(d.motivo||'')}</td>
+      <td><span class="badge ${d.canal==='ML'?'badge-blue':'badge-green'}">${d.canal==='ML'?'🛒 ML':'🏪 Tienda'}</span></td>
+      <td style="font-size:11px;color:var(--text-soft);">${esc(d.nroVenta||'')}</td>
+      <td><span class="badge ${badgeCls}">${esc(d.estado)}</span></td>
+      <td style="font-size:12px;">${colProvResultado}</td>
+      <td><div class="btn-group">${acciones}</div></td>
     </tr>`;
   }).join("");
 }
