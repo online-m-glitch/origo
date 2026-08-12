@@ -33,7 +33,7 @@
 body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px;}
 
 /* ========== LOGIN ========== */
-
+#loginScreen{
   display:flex;align-items:center;justify-content:center;
   min-height:100vh;background:#0d2259;
 }
@@ -306,6 +306,102 @@ tr:hover td{background:#fafbfc;}
   .btn{font-size:11px;padding:6px 10px;}
   #vtab-ml,#vtab-tienda,#vtab-historial{padding:8px;font-size:11px;flex:1;text-align:center;}
 }
+/* ========================================================
+   MEJORAS DE DISEÑO Y USABILIDAD (PC + MÓVIL)
+   ======================================================== */
+
+/* Tipografía: stack de fuentes del sistema más prolijo en Mac/Linux/Android, no solo Windows */
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;-webkit-font-smoothing:antialiased;line-height:1.4;}
+
+/* Scrollbar fino y prolijo (Chrome/Edge/Safari + Firefox) */
+*{scrollbar-width:thin;scrollbar-color:#b9c6e6 transparent;}
+::-webkit-scrollbar{width:9px;height:9px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:#b9c6e6;border-radius:20px;border:2px solid transparent;background-clip:padding-box;}
+::-webkit-scrollbar-thumb:hover{background:#8fa3d1;background-clip:padding-box;}
+
+/* Foco accesible y prolijo en toda la app (teclado y mouse) */
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{
+  outline:2px solid var(--ml-blue);outline-offset:2px;border-radius:4px;
+}
+
+/* Transición suave al cambiar de sección */
+.section.active{animation:origoFadeIn .18s ease-out;}
+@keyframes origoFadeIn{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
+
+/* Cards: leve elevación al pasar el mouse, transición más suave */
+.card{transition:box-shadow .18s ease, transform .18s ease;}
+.stat-card{transition:box-shadow .18s ease, transform .18s ease;}
+.stat-card:hover{box-shadow:var(--shadow-lg);transform:translateY(-1px);}
+
+/* Botones: transición más completa (color+sombra), leve feedback al presionar */
+.btn{transition:.15s ease;box-shadow:0 1px 2px rgba(13,34,89,.06);}
+.btn:active{transform:scale(.97);}
+.btn-primary{box-shadow:0 2px 6px rgba(245,196,0,.35);}
+.btn-primary:hover{box-shadow:0 3px 10px rgba(245,196,0,.45);}
+.btn-success:hover{box-shadow:0 3px 10px rgba(22,163,74,.35);}
+.btn-danger:hover{box-shadow:0 3px 10px rgba(220,38,38,.3);}
+.btn:disabled{opacity:.55;cursor:not-allowed;transform:none !important;box-shadow:none !important;}
+
+/* Filas de tabla: hover y transición más suave, look más premium */
+tr{transition:background-color .1s ease;}
+th:first-child{border-top-left-radius:8px;}
+th:last-child{border-top-right-radius:8px;}
+
+/* Nav items: transición e indicador más suave */
+.nav-item{border-radius:0 8px 8px 0;margin-right:8px;}
+
+/* Inputs: sombra sutil de foco, más "vivo" */
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus,.search-input:focus{
+  border-color:var(--accent);box-shadow:0 0 0 3px rgba(26,86,219,.12);
+}
+
+/* Spinner de carga animado */
+.origo-spinner{
+  width:40px;height:40px;border-radius:50%;
+  border:4px solid rgba(255,255,255,.25);border-top-color:var(--ml-yellow);
+  animation:origoSpin .7s linear infinite;
+}
+@keyframes origoSpin{to{transform:rotate(360deg);}}
+
+/* Badges con borde sutil para más definición visual */
+.badge{border:1px solid transparent;}
+.badge-green{border-color:rgba(22,163,74,.18);}
+.badge-red{border-color:rgba(220,38,38,.18);}
+.badge-orange{border-color:rgba(234,112,0,.18);}
+.badge-blue{border-color:rgba(26,86,219,.18);}
+
+/* Toast con leve animación de entrada */
+#toast.show{animation:origoToastIn .2s ease-out;}
+@keyframes origoToastIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+
+/* Encabezado de tabla pegajoso SOLO dentro de contenedores con scroll propio (previews, comparaciones) */
+.table-wrap[style*="max-height"] thead th{position:sticky;top:0;z-index:5;}
+
+/* Indicador visual de que una tabla se puede scrollear horizontalmente en mobile */
+@media(max-width:768px){
+  .table-wrap{position:relative;}
+  .table-wrap::after{
+    content:"";position:absolute;top:0;right:0;bottom:0;width:18px;pointer-events:none;
+    background:linear-gradient(to right, transparent, rgba(13,34,89,.06));
+  }
+}
+
+/* Mobile: targets táctiles más cómodos y respiro para notch/gestos (iOS) */
+@media(max-width:768px){
+  .btn{padding:9px 14px;min-height:38px;}
+  .btn-sm{min-height:32px;padding:6px 11px;}
+  .nav-item{padding:12px 20px;min-height:44px;}
+  .mobile-bar{padding-top:calc(11px + env(safe-area-inset-top));}
+  #toast{bottom:calc(24px + env(safe-area-inset-bottom));}
+  input,select,textarea{font-size:16px !important;} /* evita el zoom automático de iOS al enfocar */
+  .modal{border-radius:14px 14px 0 0;}
+}
+
+/* Reducir movimiento para quien lo prefiera (accesibilidad) */
+@media (prefers-reduced-motion: reduce){
+  *{animation-duration:.001s !important;transition-duration:.001s !important;}
+}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -468,7 +564,7 @@ tr:hover td{background:#fafbfc;}
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th style="width:32px;"><input type="checkbox" id="checkAll" onchange="toggleCheckAll(this.checked)" style="width:15px;height:15px;cursor:pointer;"></th><th>Img</th><th>SKU</th><th>Producto</th><th>Proveedor</th><th>Rubro</th><th>Costo ($)</th><th>Precio ML ($)</th><th>Precio Tienda ($)</th><th>Margen % ML</th><th>Margen % Tienda</th><th>Stock Mín</th><th>Tienda</th><th style="text-align:center;">ML</th><th>Acciones</th></tr></thead>
+              <thead><tr><th style="width:32px;"><input type="checkbox" id="checkAll" onchange="toggleCheckAll(this.checked)" style="width:15px;height:15px;cursor:pointer;"></th><th>Img</th><th>SKU</th><th>Producto</th><th>Proveedor</th><th>Rubro</th><th>Costo ($)</th><th>Precio ML ($)</th><th>Precio Tienda ($)</th><th>Margen % ML</th><th>Margen % Tienda</th><th>Stock Dep.</th><th>Stock Full</th><th>Stock Mín</th><th>Tienda</th><th style="text-align:center;">ML</th><th>Acciones</th></tr></thead>
               <tbody id="productosBody"></tbody>
             </table>
             <div class="empty" id="productosEmpty" style="display:none;"><div class="icon">📦</div><p>No hay productos que coincidan.</p></div>
@@ -1584,6 +1680,9 @@ tr:hover td{background:#fafbfc;}
               <button class="btn btn-ghost" onclick="aplicarRetencionesRealesAnalisis()" title="Calcula el % promedio real de IIBB y de IVA+Ganancias a partir de tus ventas ML con facturación sincronizada, y lo carga en los campos de al lado">📊 Usar retenciones reales</button>
               <button class="btn btn-ghost" onclick="sincronizarFeesML()">🔄 Sincronizar comisiones ML</button>
               <input class="search-input" type="text" id="analisisBuscar" placeholder="Buscar SKU, MLA o producto…" oninput="renderAnalisis()" style="width:180px;">
+              <select id="analisisFiltroProveedor" onchange="renderAnalisis()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                <option value="">Todos los proveedores</option>
+              </select>
               <select id="analisisFiltro" onchange="renderAnalisis()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
                 <option value="">Todos</option>
                 <option value="Rentable">Solo rentables</option>
@@ -2488,8 +2587,8 @@ function mostrarCargando(on){
   if(!el){
     el=document.createElement("div");
     el.id="loadingOverlay";
-    el.style.cssText="position:fixed;inset:0;background:rgba(13,34,89,.8);z-index:9999;display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;font-weight:700;gap:12px;flex-direction:column;";
-    el.innerHTML="<span style='font-size:36px;'>⏳</span><span>Cargando datos de Supabase...</span>";
+    el.style.cssText="position:fixed;inset:0;background:rgba(13,34,89,.82);backdrop-filter:blur(2px);z-index:9999;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:600;gap:14px;flex-direction:column;";
+    el.innerHTML="<div class='origo-spinner'></div><span>Cargando datos de Supabase…</span>";
     document.body.appendChild(el);
   }
   el.style.display=on?"flex":"none";
@@ -2703,6 +2802,8 @@ function renderProductos(){
     const margenTiendaVal = p.costo&&p.precioTienda ? ((p.precioTienda-p.costo)/p.precioTienda*100) : null;
     const margenTienda = margenTiendaVal!==null ? margenTiendaVal.toFixed(0)+"%" : "—";
     const margenTiendaCls = margenTiendaVal===null?"":margenTiendaVal>=25?"num-pos":margenTiendaVal>=10?"":"num-neg";
+    const stockDep = calcularStockDeposito(p.sku);
+    const stockFull = calcularStockFullML(p.sku);
     const cantFotos = (p.imagenes&&p.imagenes.length)?p.imagenes.length:(p.img?1:0);
     const thumb = p.img
       ? `<div style="position:relative;display:inline-block;"><img class="thumb" src="${p.img}" alt="" onerror="this.style.display='none'">${cantFotos>1?`<span style="position:absolute;bottom:-4px;right:-4px;background:var(--ml-blue);color:#fff;font-size:9px;font-weight:700;border-radius:8px;padding:1px 4px;">+${cantFotos-1}</span>`:''}</div>`
@@ -2719,6 +2820,8 @@ function renderProductos(){
       <td class="num">$${fmt(p.precioTienda||0)}</td>
       <td class="num ${margenCls}">${margen}</td>
       <td class="num ${margenTiendaCls}">${margenTienda}</td>
+      <td class="num ${stockDep<=0?'num-neg':''}">${stockDep}</td>
+      <td class="num" style="color:var(--ml-blue);font-weight:700;">${stockFull}</td>
       <td class="num">${p.stockMin||0}</td>
       <td><span class="badge ${p.stockOn!==0?'badge-green':'badge-red'}">${p.stockOn!==0?'Visible':'Oculto'}</span></td>
       <td style="text-align:center;">${p.ml_item_id?`<img src="${ML_LOGO_B64}" alt="Vinculado a ML" title="Vinculado a ML: ${esc(p.ml_item_id)}" style="width:22px;height:22px;object-fit:contain;">`:''}</td>
@@ -3433,8 +3536,23 @@ function renderAnalisis(){
   if(inpPer && document.activeElement!==inpPer){ inpPer.value=(appConfig.percepcion_pct!=null)?appConfig.percepcion_pct:0; }
   const filtro=document.getElementById("analisisFiltro").value;
   const q=(document.getElementById("analisisBuscar")?.value||"").trim().toLowerCase();
+
+  const selProv=document.getElementById("analisisFiltroProveedor");
+  if(selProv){
+    const proveedores=[...new Set(productos.map(p=>p.proveedor).filter(Boolean))].sort();
+    const actual=selProv.value;
+    const opcionesNuevas='<option value="">Todos los proveedores</option>'+proveedores.map(pv=>`<option value="${esc(pv)}">${esc(pv)}</option>`).join("");
+    if(selProv.dataset.opts!==opcionesNuevas){
+      selProv.innerHTML=opcionesNuevas;
+      selProv.dataset.opts=opcionesNuevas;
+      selProv.value=actual;
+    }
+  }
+  const provFiltro=selProv?.value||"";
+
   const lista=productos.filter(p=>{
     if(filtro && calcAnaliML(p).rec!==filtro) return false;
+    if(provFiltro && p.proveedor!==provFiltro) return false;
     if(q){
       const enSku=(p.sku||"").toLowerCase().includes(q);
       const enMla=(p.ml_item_id||"").toLowerCase().includes(q);
