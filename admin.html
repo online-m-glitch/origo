@@ -378,6 +378,9 @@ tr:hover td{background:#fafbfc;}
     <div class="nav-item" onclick="mostrarSeccion('proveedores')">
       <span class="icon">🏭</span> Proveedores
     </div>
+    <div class="nav-item" onclick="mostrarSeccion('listasprecios')">
+      <span class="icon">📋</span> Listas de Precios
+    </div>
     <div class="nav-section">Análisis</div>
     <div class="nav-item" onclick="mostrarSeccion('analisis')">
       <span class="icon">💰</span> Análisis ML
@@ -1434,6 +1437,77 @@ tr:hover td{background:#fafbfc;}
       </div>
     </div>
 
+    <!-- ========== LISTAS DE PRECIOS ========== -->
+    <div id="sec-listasprecios" class="section">
+      <div class="page-header">
+        <div><h2>Listas de Precios de Proveedores</h2><div class="sub">Subí el Excel del proveedor y comparalo contra el costo actual de tu Catálogo</div></div>
+      </div>
+      <div style="padding:24px;">
+
+        <div class="card" style="margin-bottom:20px;">
+          <div class="card-header"><h3>📂 Subir lista de precios</h3></div>
+          <div style="padding:16px;">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;">
+              <div class="form-group" style="margin:0;">
+                <label>Proveedor</label>
+                <input type="text" id="lpProveedor" list="provListProd" placeholder="Ej: ANTHAY" style="text-transform:uppercase;padding:8px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:13px;width:200px;">
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label>Fecha de la lista</label>
+                <input type="date" id="lpFecha" style="padding:8px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:13px;">
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label>Archivo (Excel o CSV)</label>
+                <input type="file" id="lpArchivo" accept=".xlsx,.xls,.csv" onchange="procesarArchivoListaPrecios(this)">
+              </div>
+            </div>
+            <div style="font-size:11px;color:var(--text-soft);">El archivo debe tener columnas con <strong>SKU</strong>, <strong>Título/Producto</strong>, <strong>Precio de lista</strong>, y una o más columnas que digan <strong>"Descuento"</strong> (se aplican en cadena, ej: -10% y después -5%). Si el archivo ya trae una columna "Precio neto", se usa directo en vez de calcularlo.</div>
+          </div>
+        </div>
+
+        <div id="lpPreviewWrap" style="display:none;">
+          <div class="card" style="margin-bottom:20px;">
+            <div class="card-header"><h3>👁️ Vista previa</h3></div>
+            <div style="padding:12px 16px;">
+              <div id="lpPreviewResumen" style="font-size:13px;font-weight:700;color:#0d2259;margin-bottom:10px;"></div>
+              <div class="table-wrap" style="max-height:400px;">
+                <table>
+                  <thead><tr><th>SKU</th><th>Título proveedor</th><th>Precio lista</th><th>Descuentos</th><th>Precio neto</th><th>¿En catálogo?</th></tr></thead>
+                  <tbody id="lpPreviewBody"></tbody>
+                </table>
+              </div>
+              <div style="margin-top:14px;display:flex;gap:8px;">
+                <button class="btn btn-ghost" onclick="document.getElementById('lpPreviewWrap').style.display='none';">Cancelar</button>
+                <button class="btn btn-success" onclick="confirmarImportLista()">✔ Confirmar importación</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:20px;">
+          <div class="card-header">
+            <h3>⚖️ Comparar con Catálogo</h3>
+            <div class="toolbar">
+              <select id="lpFiltroProveedor" onchange="renderComparacionListaPrecios()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                <option value="">Todos los proveedores</option>
+              </select>
+              <button class="btn btn-ghost" onclick="actualizarCostosSeleccionados()">💾 Actualizar seleccionados</button>
+              <button class="btn btn-primary" onclick="actualizarTodosCostos()">💾 Actualizar todos los que difieren</button>
+            </div>
+          </div>
+          <div style="font-size:11px;color:var(--text-soft);padding:8px 16px;border-bottom:1px solid var(--border);">Se muestra la última lista cargada por proveedor para cada SKU. Solo aparecen los productos que existen en tu Catálogo con SKU idéntico.</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th style="width:32px;"><input type="checkbox" id="lpCheckAll" onchange="toggleCheckAllLP(this.checked)"></th><th>SKU</th><th>Producto</th><th>Proveedor</th><th>Fecha lista</th><th>Costo actual</th><th>Precio neto lista</th><th>Diferencia</th></tr></thead>
+              <tbody id="lpCompBody"></tbody>
+            </table>
+            <div class="empty" id="lpCompEmpty" style="display:none;"><div class="icon">⚖️</div><p>Sin listas de precios cargadas todavía.</p></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
     <!-- ========== ANÁLISIS ML ========== -->
     <div id="sec-analisis" class="section">
       <div class="page-header">
@@ -2197,6 +2271,7 @@ let ventas = [];
 let gastos = []; // gastos operativos no asociados a un producto (monotributo, personal, insumos, factura ML, etc.)
 let cajaMovimientos = []; // movimientos de caja (Efectivo, Mercado Pago)
 let devoluciones = []; // devoluciones de clientes / garantías con proveedores
+let listasPrecios = []; // items de listas de precios de proveedores
 let pedidos = [];
 let pedidosProv = [];
 let proveedoresDB = [];
@@ -2325,6 +2400,10 @@ async function cargarDatos(){
       const dvs = await sbGet("devoluciones_garantias","order=fecha_ingreso.desc");
       devoluciones = dvs||[];
     }catch(e){ devoluciones=[]; }
+    try{
+      const lps = await sbGet("listas_precios_items","order=fecha.desc");
+      listasPrecios = lps||[];
+    }catch(e){ listasPrecios=[]; }
     // Proveedores
     try{
       const provs = await sbGet("proveedores","order=nombre.asc");
@@ -2383,8 +2462,7 @@ async function sbGuardar(tipo, data){
     if(tipo==="deleteCajaMov") { await sbDelete("caja_movimientos","id=eq."+data); }
     if(tipo==="devolucion")       { const r=await sbInsert("devoluciones_garantias",data); return r; }
     if(tipo==="updateDevolucion") { await sbUpdate("devoluciones_garantias","id=eq."+data.id, data.campos); }
-    if(tipo==="deleteDevolucion") { await sbDelete("devoluciones_garantias","id=eq."+data); }
-    if(tipo==="updatePedido")  { await sbUpdate ? sbUpdate("pedidos","id=eq."+data.id,{estado:data.estado}) : null; }
+    if(tipo==="deleteDevolucion") { await sbDelete("devoluciones_garantias","id=eq."+data); }    if(tipo==="updatePedido")  { await sbUpdate ? sbUpdate("pedidos","id=eq."+data.id,{estado:data.estado}) : null; }
     if(tipo==="deletePedido")  { await sbDelete("pedidos","id=eq."+data); }
     if(tipo==="reset"){
       // Supabase requiere un filtro para DELETE — usamos created_at o id
@@ -3882,6 +3960,10 @@ async function mostrarSeccion(id){
   if(id==="gastos"){ renderGastosSeccion(); }
   if(id==="caja"){ renderCaja(); }
   if(id==="devoluciones"){ renderDevoluciones(); }
+  if(id==="listasprecios"){
+    if(!document.getElementById('lpFecha').value) document.getElementById('lpFecha').value=new Date().toISOString().split('T')[0];
+    renderComparacionListaPrecios();
+  }
   if(id==="pedidos"){ renderPedidos(); }
   if(id==="pedidosprov"){ renderPedidosProv(); }
   if(id==="proveedores"){ renderProveedores(); }
@@ -4776,6 +4858,210 @@ function renderDevoluciones(){
     </tr>`;
   }).join("");
 }
+// ── Listas de Precios de Proveedores ──
+let lpLineasPreview = [];
+
+function procesarArchivoListaPrecios(input){
+  const file=input.files[0]; if(!file) return;
+  if(file.name.match(/\.xlsx?$/i)){
+    const reader=new FileReader();
+    reader.onload=e=>{
+      try{
+        const data=new Uint8Array(e.target.result);
+        const wb=XLSX.read(data,{type:'array'});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+        procesarRowsListaPrecios(rows);
+      }catch(err){ toast('Error leyendo el Excel: '+err.message,'err'); }
+    };
+    reader.readAsArrayBuffer(file);
+  } else {
+    const reader=new FileReader();
+    reader.onload=e=>{
+      const rows=e.target.result.split(/\r?\n/).map(l=>parseCsvLine(l));
+      procesarRowsListaPrecios(rows);
+    };
+    reader.readAsText(file,'UTF-8');
+  }
+}
+
+function procesarRowsListaPrecios(rows){
+  // Buscar fila de encabezado (primera fila con una celda que diga "sku")
+  let headerIdx=-1;
+  for(let i=0;i<Math.min(10,rows.length);i++){
+    if((rows[i]||[]).some(c=>String(c||'').toLowerCase().trim()==='sku')){ headerIdx=i; break; }
+  }
+  if(headerIdx===-1){ toast('No encontré una columna "SKU" en el archivo. Revisá el formato.','err',6000); return; }
+
+  const header=rows[headerIdx].map(h=>String(h||'').toLowerCase().trim());
+  const skuCol = header.findIndex(h=>h==='sku');
+  const tituloCol = header.findIndex(h=>/t[ií]tulo|producto|descrip/.test(h));
+  const precioListaCol = header.findIndex(h=>/precio.*lista|lista.*precio/.test(h)) >=0
+    ? header.findIndex(h=>/precio.*lista|lista.*precio/.test(h))
+    : header.findIndex(h=>h.includes('precio') && !h.includes('neto'));
+  const precioNetoCol = header.findIndex(h=>/precio.*neto|neto.*precio/.test(h));
+  const descuentoCols = header.map((h,i)=>({h,i})).filter(x=>x.h.includes('descuento')).map(x=>x.i);
+
+  if(skuCol<0 || precioListaCol<0){
+    toast('No pude identificar las columnas de SKU y/o Precio de lista. Revisá los encabezados del archivo.','err',6000);
+    return;
+  }
+
+  lpLineasPreview = [];
+  for(let i=headerIdx+1;i<rows.length;i++){
+    const r=rows[i];
+    if(!r || !r.length) continue;
+    const sku=String(r[skuCol]||'').trim().toUpperCase();
+    if(!sku) continue;
+    const titulo = tituloCol>=0 ? String(r[tituloCol]||'').trim() : '';
+    const precioLista = parseFloat(String(r[precioListaCol]||'0').replace(/[^0-9.,-]/g,'').replace(',','.'))||0;
+    const descuentos = descuentoCols.map(c=>parseFloat(String(r[c]||'0').replace(/[^0-9.,-]/g,'').replace(',','.'))||0).filter(d=>d>0);
+
+    let precioNeto;
+    if(precioNetoCol>=0 && r[precioNetoCol]!==''){
+      precioNeto = parseFloat(String(r[precioNetoCol]||'0').replace(/[^0-9.,-]/g,'').replace(',','.'))||0;
+    } else {
+      precioNeto = precioLista;
+      for(const d of descuentos){ precioNeto = precioNeto*(1-d/100); }
+    }
+    const p = productos.find(x=>x.sku.toUpperCase()===sku);
+    lpLineasPreview.push({ sku, titulo, precioLista, descuentos, precioNeto: Math.round(precioNeto*100)/100, enCatalogo: !!p });
+  }
+
+  if(!lpLineasPreview.length){ toast('No se encontraron filas con SKU en el archivo.','err'); return; }
+  renderPreviewListaPrecios();
+}
+
+function renderPreviewListaPrecios(){
+  const enCat = lpLineasPreview.filter(l=>l.enCatalogo).length;
+  document.getElementById('lpPreviewResumen').textContent =
+    `${lpLineasPreview.length} productos en el archivo · ${enCat} existen en tu Catálogo (se van a poder comparar) · ${lpLineasPreview.length-enCat} no están en tu Catálogo`;
+  document.getElementById('lpPreviewBody').innerHTML = lpLineasPreview.map(l=>`
+    <tr>
+      <td><span class="sku-tag">${esc(l.sku)}</span></td>
+      <td style="max-width:220px;font-size:12px;">${esc(l.titulo)}</td>
+      <td class="num">$${fmt(l.precioLista)}</td>
+      <td style="font-size:12px;">${l.descuentos.length?l.descuentos.map(d=>d+'%').join(' + '):'—'}</td>
+      <td class="num" style="font-weight:700;">$${fmt(l.precioNeto)}</td>
+      <td>${l.enCatalogo?'<span class="badge badge-green">✓ Sí</span>':'<span class="badge badge-red">✕ No</span>'}</td>
+    </tr>`).join('');
+  document.getElementById('lpPreviewWrap').style.display='block';
+}
+
+async function confirmarImportLista(){
+  if(checkViewer("Importar lista de precios")) return;
+  const proveedor=document.getElementById('lpProveedor').value.trim().toUpperCase();
+  const fecha=document.getElementById('lpFecha').value || new Date().toISOString().split('T')[0];
+  if(!proveedor){ toast('Ingresá el proveedor.','err'); return; }
+  if(!lpLineasPreview.length){ toast('No hay datos para importar.','err'); return; }
+
+  const rowsData = lpLineasPreview.map(l=>({
+    proveedor, fecha, sku:l.sku, titulo:l.titulo, precio_lista:l.precioLista, descuentos:l.descuentos, precio_neto:l.precioNeto
+  }));
+
+  mostrarCargando(true);
+  try{
+    const guardadas = await sbInsertBulk('listas_precios_items', rowsData, 300);
+    guardadas.forEach((g,idx)=>listasPrecios.unshift(Object.assign({},rowsData[idx],g||{})));
+    toast(`✅ ${guardadas.length} precios importados de ${proveedor}`,'ok',4000);
+  }catch(e){
+    toast('Error importando: '+e.message,'err',6000);
+    mostrarCargando(false);
+    return;
+  }
+  mostrarCargando(false);
+
+  document.getElementById('lpPreviewWrap').style.display='none';
+  document.getElementById('lpArchivo').value='';
+  lpLineasPreview=[];
+  actualizarProvLists();
+  renderComparacionListaPrecios();
+}
+
+// Última lista cargada por proveedor+SKU (la fecha más reciente)
+function ultimasListasPorSku(){
+  const mapa={};
+  for(const item of listasPrecios){
+    const key=item.proveedor+'|'+item.sku.toUpperCase();
+    if(!mapa[key] || item.fecha>mapa[key].fecha) mapa[key]=item;
+  }
+  return Object.values(mapa);
+}
+
+function renderComparacionListaPrecios(){
+  const ultimos = ultimasListasPorSku();
+
+  // Poblar filtro de proveedores
+  const selProv = document.getElementById('lpFiltroProveedor');
+  const provsUnicos = [...new Set(ultimos.map(i=>i.proveedor))].sort();
+  const valorActual = selProv.value;
+  selProv.innerHTML = '<option value="">Todos los proveedores</option>' + provsUnicos.map(p=>`<option value="${esc(p)}">${esc(p)}</option>`).join('');
+  selProv.value = provsUnicos.includes(valorActual) ? valorActual : '';
+
+  const filtro = selProv.value;
+  const filas = ultimos
+    .filter(item=>!filtro || item.proveedor===filtro)
+    .map(item=>{
+      const p = productos.find(x=>x.sku.toUpperCase()===item.sku.toUpperCase());
+      if(!p) return null; // solo mostramos lo que existe en catálogo, como pediste
+      const diferencia = item.precio_neto - (p.costo||0);
+      return { item, p, diferencia };
+    })
+    .filter(Boolean)
+    .sort((a,b)=>Math.abs(b.diferencia)-Math.abs(a.diferencia));
+
+  const tbody = document.getElementById('lpCompBody');
+  const empty = document.getElementById('lpCompEmpty');
+  if(!filas.length){ tbody.innerHTML=''; empty.style.display='block'; return; }
+  empty.style.display='none';
+
+  tbody.innerHTML = filas.map((f,i)=>{
+    const {item,p,diferencia}=f;
+    const sinCambio = Math.abs(diferencia)<0.01;
+    return `<tr data-sku="${esc(item.sku)}" data-nuevo="${item.precio_neto}">
+      <td><input type="checkbox" class="lp-check" ${sinCambio?'disabled':'checked'} data-idx="${i}"></td>
+      <td><span class="sku-tag">${esc(item.sku)}</span></td>
+      <td style="max-width:180px;">${esc(p.nombre)}</td>
+      <td>${esc(item.proveedor)}</td>
+      <td style="font-size:12px;color:var(--text-soft);">${item.fecha}</td>
+      <td class="num">$${fmt(p.costo||0)}</td>
+      <td class="num" style="font-weight:700;">$${fmt(item.precio_neto)}</td>
+      <td class="num ${diferencia>0?'num-neg':diferencia<0?'num-pos':''}">${sinCambio?'—':(diferencia>0?'+':'')+'$'+fmt(diferencia)}</td>
+    </tr>`;
+  }).join('');
+  window._lpFilasActuales = filas; // para los botones de actualizar
+}
+
+function toggleCheckAllLP(checked){
+  document.querySelectorAll('.lp-check:not(:disabled)').forEach(c=>c.checked=checked);
+}
+
+async function _actualizarCostosDesdeFilas(filas){
+  if(!filas.length){ toast('No hay nada para actualizar.','ok'); return; }
+  mostrarCargando(true);
+  let ok=0, err=0;
+  for(const f of filas){
+    try{
+      await sbUpdate('productos','sku=eq.'+encodeURIComponent(f.p.sku),{costo:f.item.precio_neto});
+      f.p.costo = f.item.precio_neto;
+      ok++;
+    }catch(e){ err++; }
+  }
+  mostrarCargando(false);
+  renderComparacionListaPrecios(); renderProductos(); renderAnalisis();
+  toast(`💾 ${ok} costo(s) actualizado(s)${err?` · ${err} con error`:''}`,'ok',4000);
+}
+async function actualizarCostosSeleccionados(){
+  if(checkViewer("Actualizar costos")) return;
+  const filas=(window._lpFilasActuales||[]).filter((f,i)=>document.querySelector(`.lp-check[data-idx="${i}"]`)?.checked);
+  await _actualizarCostosDesdeFilas(filas);
+}
+async function actualizarTodosCostos(){
+  if(checkViewer("Actualizar costos")) return;
+  const filas=(window._lpFilasActuales||[]).filter(f=>Math.abs(f.diferencia)>=0.01);
+  await _actualizarCostosDesdeFilas(filas);
+}
+
 function costoDeSku(sku){
   const skuUp=(sku||"").toUpperCase().trim();
   const p=productos.find(x=>x.sku.toUpperCase().trim()===skuUp);
