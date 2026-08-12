@@ -1220,6 +1220,15 @@ tr:hover td{background:#fafbfc;}
               <label style="font-size:11px;">Monto ($)</label>
               <input type="number" id="gMonto" placeholder="0" style="width:110px;padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
             </div>
+            <div class="form-group" style="margin:0;">
+              <label style="font-size:11px;">¿Cómo se pagó?</label>
+              <select id="gMetodoPago" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                <option value="Efectivo">💵 Efectivo</option>
+                <option value="MercadoPago">💳 Mercado Pago</option>
+                <option value="Transferencia">🏦 Transferencia</option>
+                <option value="Pendiente">⏳ Todavía no lo pagué</option>
+              </select>
+            </div>
             <label style="font-size:11px;display:flex;align-items:center;gap:5px;color:var(--text-soft);">
               <input type="checkbox" id="gRecurrente" style="width:14px;height:14px;"> Es mensual fijo
             </label>
@@ -1227,7 +1236,7 @@ tr:hover td{background:#fafbfc;}
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th>Monto ($)</th><th>¿Fijo mensual?</th><th></th></tr></thead>
+              <thead><tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th>Monto ($)</th><th>Pago</th><th>¿Fijo mensual?</th><th></th></tr></thead>
               <tbody id="gastosBody"></tbody>
             </table>
             <div class="empty" id="gastosEmpty" style="display:none;"><div class="icon">💸</div><p>Sin gastos cargados.</p></div>
@@ -1439,6 +1448,29 @@ tr:hover td{background:#fafbfc;}
         <div class="modal-actions">
           <button class="btn btn-ghost" onclick="document.getElementById('modalResolverGarantia').classList.remove('show')">Cancelar</button>
           <button class="btn btn-primary" onclick="confirmarResolverGarantia()">Confirmar resolución</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal marcar gasto como pagado -->
+    <div class="overlay" id="modalPagarGasto">
+      <div class="modal modal-sm">
+        <h3>💰 Marcar gasto como pagado</h3>
+        <div class="form-group">
+          <label>Fecha de pago</label>
+          <input type="date" id="pgFecha">
+        </div>
+        <div class="form-group">
+          <label>¿Cómo lo pagaste?</label>
+          <select id="pgMetodoPago">
+            <option value="Efectivo">💵 Efectivo</option>
+            <option value="MercadoPago">💳 Mercado Pago</option>
+            <option value="Transferencia">🏦 Transferencia</option>
+          </select>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" onclick="document.getElementById('modalPagarGasto').classList.remove('show')">Cancelar</button>
+          <button class="btn btn-primary" onclick="confirmarPagoGasto()">Confirmar pago</button>
         </div>
       </div>
     </div>
@@ -2482,6 +2514,7 @@ async function sbGuardar(tipo, data){
     if(tipo==="venta")         { const r=await sbInsert("ventas",data); return r; }
     if(tipo==="deleteVenta")   { await sbDelete("ventas","id=eq."+data); }
     if(tipo==="gasto")         { const r=await sbInsert("gastos",data); return r; }
+    if(tipo==="updateGasto")   { await sbUpdate("gastos","id=eq."+data.id, data.campos); }
     if(tipo==="deleteGasto")   { await sbDelete("gastos","id=eq."+data); }
     if(tipo==="cajamov")       { const r=await sbInsert("caja_movimientos",data); return r; }
     if(tipo==="deleteCajaMov") { await sbDelete("caja_movimientos","id=eq."+data); }
@@ -4541,16 +4574,74 @@ async function registrarGasto(){
   const descripcion=document.getElementById("gDescripcion").value.trim();
   const monto=parseFloat(document.getElementById("gMonto").value)||0;
   const recurrente=document.getElementById("gRecurrente").checked;
+  const metodoPago=document.getElementById("gMetodoPago").value;
   if(!monto){ toast("Ingresá un monto válido.","err"); return; }
-  const data={fecha, categoria, descripcion, monto, recurrente};
+  const pagado = metodoPago!=="Pendiente";
+  const data={fecha, categoria, descripcion, monto, recurrente, metodo_pago:pagado?metodoPago:"", pagado};
+  let saved;
   try{
-    const saved=await sbGuardar("gasto",data);
+    saved=await sbGuardar("gasto",data);
     gastos.unshift(Object.assign({},data,saved||{}));
   }catch(e){ toast("Error guardando el gasto: "+e.message,"err"); return; }
   document.getElementById("gDescripcion").value="";
   document.getElementById("gMonto").value="";
   document.getElementById("gRecurrente").checked=false;
-  toast("Gasto agregado ✅","ok");
+  renderGastosSeccion();
+
+  if(!pagado){
+    toast("Gasto agregado como pendiente ⏳ · marcalo como pagado cuando lo abones.","ok",4500);
+    return;
+  }
+  if(metodoPago==="Efectivo" || metodoPago==="MercadoPago"){
+    const cajaNombre=metodoPago==="Efectivo"?"Efectivo":"Mercado Pago";
+    confirmCb=async()=>{
+      const ccData={fecha, caja:cajaNombre, tipo:"Egreso", monto, concepto:categoria+(descripcion?" — "+descripcion:""), origen:"gasto", referencia:saved&&saved.id?String(saved.id):""};
+      try{
+        const savedCaja=await sbGuardar("cajamov",ccData);
+        cajaMovimientos.unshift(Object.assign({},ccData,savedCaja||{}));
+        toast("$"+fmt(monto)+" descontado de Caja "+cajaNombre+" ✅","ok");
+      }catch(e){ toast("Error acreditando en caja: "+e.message,"err"); }
+    };
+    document.getElementById("confirmBtn").textContent="Sí, descontar";
+    document.getElementById("confirmMsg").innerHTML=`¿Descontar <strong>$${fmt(monto)}</strong> de <strong>Caja ${cajaNombre}</strong> por este gasto?`;
+    document.getElementById("modalConfirm").classList.add("show");
+  } else {
+    toast("Gasto agregado ✅","ok");
+  }
+}
+let gIdxPagando=null;
+function abrirModalPagarGasto(idx){
+  gIdxPagando=idx;
+  document.getElementById("pgFecha").value=new Date().toISOString().split("T")[0];
+  document.getElementById("pgMetodoPago").value="Efectivo";
+  document.getElementById("modalPagarGasto").classList.add("show");
+}
+async function confirmarPagoGasto(){
+  if(gIdxPagando===null) return;
+  const g=gastos[gIdxPagando];
+  const fecha=document.getElementById("pgFecha").value || new Date().toISOString().split("T")[0];
+  const metodoPago=document.getElementById("pgMetodoPago").value;
+
+  const campos={pagado:true, metodo_pago:metodoPago};
+  try{
+    if(g.id) await sbGuardar("updateGasto",{id:g.id, campos});
+    Object.assign(g, campos);
+  }catch(e){ toast("Error actualizando: "+e.message,"err"); return; }
+
+  document.getElementById("modalPagarGasto").classList.remove("show");
+  gIdxPagando=null;
+
+  if(metodoPago==="Efectivo" || metodoPago==="MercadoPago"){
+    const cajaNombre=metodoPago==="Efectivo"?"Efectivo":"Mercado Pago";
+    const ccData={fecha, caja:cajaNombre, tipo:"Egreso", monto:g.monto, concepto:g.categoria+(g.descripcion?" — "+g.descripcion:""), origen:"gasto", referencia:g.id?String(g.id):""};
+    try{
+      const savedCaja=await sbGuardar("cajamov",ccData);
+      cajaMovimientos.unshift(Object.assign({},ccData,savedCaja||{}));
+      toast("Gasto marcado como pagado ✅ · $"+fmt(g.monto)+" descontado de Caja "+cajaNombre,"ok",4500);
+    }catch(e){ toast("Gasto marcado como pagado, pero hubo un error en Caja: "+e.message,"err"); }
+  } else {
+    toast("Gasto marcado como pagado ✅ (Transferencia — no se registró en Caja)","ok",4500);
+  }
   renderGastosSeccion();
 }
 function eliminarGasto(idx){
@@ -4598,6 +4689,8 @@ function renderGastosSeccion(){
 
   const statsEl=document.getElementById("gastosStats");
   const total=lista.reduce((a,g)=>a+(Number(g.monto)||0),0);
+  const pendientes=lista.filter(g=>g.pagado===false);
+  const totalPendiente=pendientes.reduce((a,g)=>a+(Number(g.monto)||0),0);
   const porCategoria={};
   lista.forEach(g=>{ porCategoria[g.categoria]=(porCategoria[g.categoria]||0)+(Number(g.monto)||0); });
   const catTop=Object.entries(porCategoria).sort((a,b)=>b[1]-a[1])[0];
@@ -4606,21 +4699,31 @@ function renderGastosSeccion(){
     <div class="stat-card"><div class="label">Total</div><div class="value" style="color:#ea7000;">$${fmt(total)}</div></div>
     <div class="stat-card"><div class="label">Categoría con más peso</div><div class="value" style="font-size:16px;">${catTop?esc(catTop[0])+' ($'+fmt(catTop[1])+')':'—'}</div></div>
     <div class="stat-card"><div class="label">Fijos mensuales activos</div><div class="value">${gastos.filter(g=>g.recurrente).length}</div></div>
+    <div class="stat-card" style="${pendientes.length?'border:1.5px solid #f59e0b;':''}"><div class="label">Pendientes de pago</div><div class="value" style="color:${pendientes.length?'#dc2626':'inherit'};">${pendientes.length}${pendientes.length?' ($'+fmt(totalPendiente)+')':''}</div></div>
   `;
 
   const tbody=document.getElementById("gastosBody");
   const empty=document.getElementById("gastosEmpty");
   if(!lista.length){ if(tbody) tbody.innerHTML=""; if(empty) empty.style.display="block"; return; }
   if(empty) empty.style.display="none";
+  const metodoIcono={Efectivo:'💵',MercadoPago:'💳',Transferencia:'🏦'};
   if(tbody) tbody.innerHTML=lista.map(g=>{
     const realIdx=gastos.indexOf(g);
+    const pagado=g.pagado!==false;
+    const colPago = pagado
+      ? `<span class="badge badge-green">${metodoIcono[g.metodo_pago]||''} ${esc(g.metodo_pago||'Pagado')}</span>`
+      : `<span class="badge badge-red">⏳ Pendiente</span>`;
     return `<tr>
       <td>${g.fecha}</td>
       <td><span class="badge badge-orange">${esc(g.categoria)}</span></td>
       <td style="font-size:12px;color:var(--text-soft);">${esc(g.descripcion||'')}</td>
       <td class="num">$${fmt(g.monto)}</td>
+      <td>${colPago}</td>
       <td style="text-align:center;">${g.recurrente?'🔁':''}</td>
-      <td>${esAdmin()?`<button class="btn btn-danger btn-sm" onclick="eliminarGasto(${realIdx})">✕</button>`:""}</td>
+      <td>
+        ${!pagado?`<button class="btn btn-primary btn-sm" onclick="abrirModalPagarGasto(${realIdx})">💰 Marcar pagado</button>`:''}
+        ${esAdmin()?`<button class="btn btn-danger btn-sm" onclick="eliminarGasto(${realIdx})">✕</button>`:""}
+      </td>
     </tr>`;
   }).join("");
 }
