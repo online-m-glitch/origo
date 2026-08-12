@@ -490,6 +490,12 @@ tr:hover td{background:#fafbfc;}
               <select id="stockProveedorFiltro" onchange="renderStock()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
                 <option value="">Todos los proveedores</option>
               </select>
+              <select id="stockEstadoFiltro" onchange="renderStock()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                <option value="">Todos los estados</option>
+                <option value="Sin stock">🔴 Sin stock</option>
+                <option value="Bajo mínimo">🟠 Bajo mínimo</option>
+                <option value="Con stock">🟢 Con stock</option>
+              </select>
               <button class="btn btn-ghost" onclick="exportarStockCSV()">⬇️ Exportar stock CSV</button>
               <label class="btn btn-ghost admin-only" style="cursor:pointer;" title="Importar stock desde CSV">
                 ⬆️ Importar stock CSV / ML
@@ -3011,6 +3017,7 @@ function renderStock(){
   const q=(document.getElementById("stockBuscar")?.value||"").toLowerCase().trim();
   const selProv=document.getElementById("stockProveedorFiltro");
   const provFiltro=selProv?.value||"";
+  const estadoFiltro=document.getElementById("stockEstadoFiltro")?.value||"";
   if(selProv){
     const proveedores=[...new Set(productos.map(p=>p.proveedor).filter(Boolean))].sort();
     const actual=selProv.value;
@@ -3026,7 +3033,7 @@ function renderStock(){
     if(!q) return true;
     return p.sku.toLowerCase().includes(q) || (p.nombre||"").toLowerCase().includes(q) || (p.proveedor||"").toLowerCase().includes(q);
   });
-  const rows = lista.map(p=>{
+  const filas = lista.map(p=>{
     const dep=calcularStockDeposito(p.sku);
     const full=calcularStockFullML(p.sku);
     const total=dep+full;
@@ -3036,6 +3043,11 @@ function renderStock(){
     if(total<=0){ estado="Sin stock"; cls="badge-red"; }
     else if(total<(p.stockMin||0)){ estado="Bajo mínimo"; cls="badge-orange"; }
     else { estado="Con stock"; cls="badge-green"; }
+    return {p, dep, full, total, vend, ultimaVenta, estado, cls};
+  }).filter(f=>!estadoFiltro || f.estado===estadoFiltro);
+
+  const rows = filas.map(f=>{
+    const {p, dep, full, total, vend, ultimaVenta, estado, cls}=f;
     return `<tr id="stockrow-${esc(p.sku)}">
       <td><span class="sku-tag">${esc(p.sku)}</span></td>
       <td>${esc(p.nombre)}</td>
@@ -3056,7 +3068,7 @@ function renderStock(){
       <td><span class="badge ${cls}">${estado}</span></td>
     </tr>`;
   });
-  document.getElementById("stockBody").innerHTML = rows.join("") || `<tr><td colspan="10" style="text-align:center;padding:24px;color:var(--text-soft);">${q?"Sin resultados para '"+q+"'.":"Sin productos."}</td></tr>`;
+  document.getElementById("stockBody").innerHTML = rows.join("") || `<tr><td colspan="10" style="text-align:center;padding:24px;color:var(--text-soft);">${q||estadoFiltro?"Sin resultados para ese filtro.":"Sin productos."}</td></tr>`;
 }
 async function guardarAjusteFullML(sku){
   if(checkViewer("Ajustar stock Full ML")) return;
