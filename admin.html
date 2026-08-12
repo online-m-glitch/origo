@@ -4915,7 +4915,13 @@ function procesarRowsListaPrecios(rows){
     if(!sku) continue;
     const titulo = tituloCol>=0 ? String(r[tituloCol]||'').trim() : '';
     const precioLista = parseFloat(String(r[precioListaCol]||'0').replace(/[^0-9.,-]/g,'').replace(',','.'))||0;
-    const descuentos = descuentoCols.map(c=>parseFloat(String(r[c]||'0').replace(/[^0-9.,-]/g,'').replace(',','.'))||0).filter(d=>d>0);
+    const descuentos = descuentoCols.map(c=>{
+      let d=parseFloat(String(r[c]||'0').replace(/[^0-9.,-]/g,'').replace(',','.'))||0;
+      // Si la celda tiene formato "%" en Excel, el valor crudo viene como fracción (0.1 = "10%"), no como 10.
+      // Un descuento real nunca es menor a 1 en la práctica, así que si viene así, lo escalamos.
+      if(d>0 && d<1) d=d*100;
+      return d;
+    }).filter(d=>d>0);
 
     let precioNeto;
     if(precioNetoCol>=0 && r[precioNetoCol]!==''){
