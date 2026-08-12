@@ -1486,6 +1486,25 @@ tr:hover td{background:#fafbfc;}
 
         <div class="card" style="margin-bottom:20px;">
           <div class="card-header">
+            <h3>🆕 SKU sin catálogo</h3>
+            <div class="toolbar">
+              <select id="lpFiltroProveedorSC" onchange="renderSkuSinCatalogo()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                <option value="">Todos los proveedores</option>
+              </select>
+            </div>
+          </div>
+          <div style="font-size:11px;color:var(--text-soft);padding:8px 16px;border-bottom:1px solid var(--border);">Productos de la última lista de cada proveedor que no encontraron un SKU igual en tu Catálogo. Podés crearlos directo desde acá.</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>SKU</th><th>Título proveedor</th><th>Proveedor</th><th>Fecha lista</th><th>Precio neto</th><th></th></tr></thead>
+              <tbody id="lpSinCatBody"></tbody>
+            </table>
+            <div class="empty" id="lpSinCatEmpty" style="display:none;"><div class="icon">🆕</div><p>No hay SKU pendientes — todo lo que subiste ya está en tu Catálogo.</p></div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:20px;">
+          <div class="card-header">
             <h3>⚖️ Comparar con Catálogo</h3>
             <div class="toolbar">
               <select id="lpFiltroProveedor" onchange="renderComparacionListaPrecios()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
@@ -2964,6 +2983,8 @@ async function guardarProducto(){
     cerrarModalProducto();
     actualizarProvLists(); actualizarSkuList(); actualizarSkuListCompras();
     renderProductos(); renderPanel(); renderStock(); renderAlertas(); renderAnalisis();
+    if(typeof renderSkuSinCatalogo==="function") renderSkuSinCatalogo();
+    if(typeof renderComparacionListaPrecios==="function") renderComparacionListaPrecios();
     toast(isNuevo?"Producto agregado ✅":"Producto actualizado ✅","ok");
   }catch(e){ toast("No se pudo guardar: "+e.message,"err"); }
 }
@@ -3963,6 +3984,7 @@ async function mostrarSeccion(id){
   if(id==="listasprecios"){
     if(!document.getElementById('lpFecha').value) document.getElementById('lpFecha').value=new Date().toISOString().split('T')[0];
     renderComparacionListaPrecios();
+    renderSkuSinCatalogo();
   }
   if(id==="pedidos"){ renderPedidos(); }
   if(id==="pedidosprov"){ renderPedidosProv(); }
@@ -4982,6 +5004,7 @@ async function confirmarImportLista(){
   lpLineasPreview=[];
   actualizarProvLists();
   renderComparacionListaPrecios();
+  renderSkuSinCatalogo();
 }
 
 // Última lista cargada por proveedor+SKU (la fecha más reciente)
@@ -4992,6 +5015,49 @@ function ultimasListasPorSku(){
     if(!mapa[key] || item.fecha>mapa[key].fecha) mapa[key]=item;
   }
   return Object.values(mapa);
+}
+
+function renderSkuSinCatalogo(){
+  const ultimos = ultimasListasPorSku();
+  const selProv = document.getElementById('lpFiltroProveedorSC');
+  const provsUnicos = [...new Set(ultimos.map(i=>i.proveedor))].sort();
+  const valorActual = selProv.value;
+  selProv.innerHTML = '<option value="">Todos los proveedores</option>' + provsUnicos.map(p=>`<option value="${esc(p)}">${esc(p)}</option>`).join('');
+  selProv.value = provsUnicos.includes(valorActual) ? valorActual : '';
+  const filtro = selProv.value;
+
+  const sinCatalogo = ultimos.filter(item=>{
+    if(filtro && item.proveedor!==filtro) return false;
+    return !productos.find(x=>x.sku.toUpperCase()===item.sku.toUpperCase());
+  });
+
+  const tbody=document.getElementById('lpSinCatBody');
+  const empty=document.getElementById('lpSinCatEmpty');
+  if(!sinCatalogo.length){ tbody.innerHTML=''; empty.style.display='block'; return; }
+  empty.style.display='none';
+  tbody.innerHTML = sinCatalogo.map((item,i)=>`
+    <tr>
+      <td><span class="sku-tag">${esc(item.sku)}</span></td>
+      <td style="max-width:200px;">${esc(item.titulo)}</td>
+      <td>${esc(item.proveedor)}</td>
+      <td style="font-size:12px;color:var(--text-soft);">${item.fecha}</td>
+      <td class="num" style="font-weight:700;">$${fmt(item.precio_neto)}</td>
+      <td><button class="btn btn-primary btn-sm" onclick="crearProductoDesdeLista(${i})">+ Crear producto</button></td>
+    </tr>`).join('');
+  window._lpSinCatalogoActual = sinCatalogo;
+}
+
+function crearProductoDesdeLista(i){
+  if(checkViewer("Crear producto")) return;
+  const item = (window._lpSinCatalogoActual||[])[i];
+  if(!item) return;
+  abrirModalProducto();
+  document.getElementById('pSku').value = item.sku;
+  document.getElementById('pNombre').value = item.titulo;
+  document.getElementById('pProveedor').value = item.proveedor;
+  document.getElementById('pCosto').value = item.precio_neto;
+  calcMargenModal();
+  toast('Completá los datos que falten (categoría, precio, etc.) y guardá.','ok',4000);
 }
 
 function renderComparacionListaPrecios(){
