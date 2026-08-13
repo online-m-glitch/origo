@@ -1195,6 +1195,7 @@ th:last-child{border-top-right-radius:8px;}
                   <input type="date" id="vFechaHasta" onchange="renderVentas()" style="padding:6px 8px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
                 </div>
                 <button class="btn btn-ghost" onclick="sincronizarFacturacionML()" title="Trae comisión, envío, financiación y retenciones (IVA/IIBB/Ganancias) reales desde la API de Facturación de ML, para las ventas ML que falten">🧾 Sincronizar facturación ML</button>
+                <span id="ultimaSyncFacturacion" style="font-size:11px;color:var(--text-soft);"></span>
                 <button class="btn btn-ghost" onclick="revisarDuplicadosML()" title="Busca ventas ML repetidas (mismo Nro. de Venta) y las limpia, corrigiendo también el stock">🧹 Revisar duplicados</button>
               </div>
             </div>
@@ -1679,6 +1680,7 @@ th:last-child{border-top-right-radius:8px;}
               </label>
               <button class="btn btn-ghost" onclick="aplicarRetencionesRealesAnalisis()" title="Calcula el % promedio real de IIBB y de IVA+Ganancias a partir de tus ventas ML con facturación sincronizada, y lo carga en los campos de al lado">📊 Usar retenciones reales</button>
               <button class="btn btn-ghost" onclick="sincronizarFeesML()">🔄 Sincronizar comisiones ML</button>
+              <span id="ultimaSyncFees" style="font-size:11px;color:var(--text-soft);"></span>
               <input class="search-input" type="text" id="analisisBuscar" placeholder="Buscar SKU, MLA o producto…" oninput="renderAnalisis()" style="width:180px;">
               <select id="analisisFiltroProveedor" onchange="renderAnalisis()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
                 <option value="">Todos los proveedores</option>
@@ -1813,6 +1815,7 @@ th:last-child{border-top-right-radius:8px;}
                   Trae el stock actual de tus publicaciones en ML y actualiza el Stock Full ML.
                 </p>
                 <button class="btn btn-success" onclick="sincronizarStockML()">🔄 Sincronizar stock</button>
+                <span id="ultimaSyncStock" style="font-size:11px;color:var(--text-soft);margin-left:8px;"></span>
                 <div id="mlStockStatus" style="margin-top:10px;font-size:12px;color:var(--text-soft);"></div>
               </div>
             </div>
@@ -2999,6 +3002,7 @@ async function actualizarPrecioModal(){
   mostrarCargando(true);
   try{
     const res=await pushPrecioML(mlItemId, nuevoPrecio);
+    console.log("🔍 Respuesta cruda de ML al actualizar precio:", res);
     if(!res.ok){
       const msg="No se pudo actualizar: "+(res.data.message||res.data.error||"error desconocido");
       toast(msg,"err",6000); info.textContent="❌ "+msg; info.style.color="#dc2626";
@@ -3608,6 +3612,7 @@ async function actualizarPrecioAnalisis(sku){
   mostrarCargando(true);
   try{
     const res=await pushPrecioML(p.ml_item_id, nuevoPrecio);
+    console.log("🔍 Respuesta cruda de ML al actualizar precio:", res);
     if(!res.ok){
       toast("No se pudo actualizar: "+(res.data.message||res.data.error||"error desconocido"),"err",6000);
       mostrarCargando(false);
@@ -3626,6 +3631,35 @@ async function actualizarPrecioAnalisis(sku){
     toast("Error al actualizar: "+e.message,"err",6000);
   }
   mostrarCargando(false);
+}
+
+// ── "Última sincronización" — helper genérico para cualquier pantalla con un botón de sync ──
+async function guardarUltimaSync(clave, elId){
+  const iso=new Date().toISOString();
+  appConfig["last_sync_"+clave]=iso;
+  await sbGuardar("config",{key:"last_sync_"+clave, value:iso}).catch(()=>{});
+  if(elId) mostrarUltimaSync(clave, elId);
+}
+function formatoRelativo(iso){
+  if(!iso) return null;
+  const d=new Date(iso);
+  const diffMs=Date.now()-d.getTime();
+  const min=Math.floor(diffMs/60000);
+  if(min<1) return "recién";
+  if(min<60) return "hace "+min+" min";
+  const hs=Math.floor(min/60);
+  if(hs<24) return "hace "+hs+"h";
+  const dias=Math.floor(hs/24);
+  if(dias===1) return "ayer a las "+d.toLocaleTimeString("es-AR",{hour:"2-digit",minute:"2-digit"});
+  if(dias<7) return "hace "+dias+" días";
+  return d.toLocaleDateString("es-AR")+" "+d.toLocaleTimeString("es-AR",{hour:"2-digit",minute:"2-digit"});
+}
+function mostrarUltimaSync(clave, elId){
+  const el=document.getElementById(elId);
+  if(!el) return;
+  const iso=appConfig["last_sync_"+clave];
+  el.textContent = iso ? "🕐 Última actualización: "+formatoRelativo(iso) : "🕐 Todavía no se sincronizó";
+  el.title = iso ? new Date(iso).toLocaleString("es-AR") : "";
 }
 
 async function guardarPercepcionPct(){
@@ -3764,6 +3798,7 @@ async function sincronizarFeesML(){
   }
   mostrarCargando(false);
   renderAnalisis();
+  if(ok>0) await guardarUltimaSync("fees","ultimaSyncFees");
   toast(`Comisiones sincronizadas: ${ok} ✅` + (fail?` — ${fail} sin datos`:""), fail?"err":"ok");
 }
 
@@ -4135,12 +4170,12 @@ async function mostrarSeccion(id){
 
   // Renderizar la sección activa
   if(id==="panel") renderPanel();
-  if(id==="stock") renderStock();
+  if(id==="stock"){ renderStock(); mostrarUltimaSync("stock","ultimaSyncStock"); }
   if(id==="alertas") renderAlertas();
   if(id==="movimientos") renderMovimientos();
   if(id==="cuentacorriente") renderCC();
   if(id==="compras"){ renderCompras(); actualizarSkuListCompras(); }
-  if(id==="ventas"){ renderVentas(); renderVentasML(); renderVentasTienda(); }
+  if(id==="ventas"){ renderVentas(); renderVentasML(); renderVentasTienda(); mostrarUltimaSync("facturacion","ultimaSyncFacturacion"); }
   if(id==="gastos"){ renderGastosSeccion(); }
   if(id==="caja"){ renderCaja(); }
   if(id==="devoluciones"){ renderDevoluciones(); }
@@ -4153,7 +4188,7 @@ async function mostrarSeccion(id){
   if(id==="pedidosprov"){ renderPedidosProv(); }
   if(id==="proveedores"){ renderProveedores(); }
   if(id==="ml"){ verificarTokenML(); }
-  if(id==="analisis") renderAnalisis();
+  if(id==="analisis"){ renderAnalisis(); mostrarUltimaSync("fees","ultimaSyncFees"); }
 }
 
 // ================================================================
@@ -7076,6 +7111,7 @@ async function sincronizarFacturacionML(soloOrderIds){
   if(ok) partes.push(`${ok} venta${ok!==1?'s':''} actualizada${ok!==1?'s':''} con datos reales`);
   if(sinDatos) partes.push(`${sinDatos} sin cargos/retenciones informados por ML`);
   if(fail) partes.push(`${fail} con error`);
+  if(ok>0) await guardarUltimaSync("facturacion","ultimaSyncFacturacion");
   toast((ok?'🧾 ':'⚠️ ')+(partes.join(' · ')||'Nada para sincronizar')+' · mirá la consola (F12) para el detalle crudo','ok',7000);
 }
 // Fuerza la re-sincronización de UNA venta puntual (ignora el flag billing_synced) — útil para depurar
@@ -7296,6 +7332,7 @@ async function sincronizarStockML(){
     mostrarCargando(false);
     renderStock(); renderAlertas(); renderPanel();
     statusEl.innerHTML = `<span style="color:var(--green);">✅ ${actualizados} productos actualizados</span>`;
+    if(actualizados>0) await guardarUltimaSync("stock","ultimaSyncStock");
     toast("Stock ML sincronizado: "+actualizados+" productos","ok",4000);
   }catch(e){
     mostrarCargando(false);
