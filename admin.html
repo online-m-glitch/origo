@@ -1933,7 +1933,10 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
     <div id="sec-pedidosprov" class="section">
       <div class="page-header">
         <div><h2>Pedidos a Proveedores</h2><div class="sub">Órdenes de compra a proveedores</div></div>
-        <button class="btn btn-primary admin-only" onclick="generarPedidoReposicion()">📋 Generar pedido de reposición</button>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-ghost admin-only" onclick="abrirImportadorPedidoFullML()" title="Subí el PDF de instrucciones de preparación de un envío a Full ML — compara lo pedido contra tu stock de depósito y arma pedidos por lo que falta">📥 Importar PDF Full ML</button>
+          <button class="btn btn-primary admin-only" onclick="generarPedidoReposicion()">📋 Generar pedido de reposición</button>
+        </div>
       </div>
       <div style="padding:24px;">
         <div class="stats-grid" id="ppStats" style="margin-bottom:20px;"></div>
@@ -2261,6 +2264,64 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
       <button class="btn btn-ghost" onclick="cerrarModalFullML()">Cancelar</button>
       <button class="btn btn-success" id="btnConfirmarFullML" onclick="confirmarImportFullML()" style="display:none;">
         ✔ Confirmar envío a Full ML
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal importar PDF Full ML → Pedidos a Proveedores -->
+<div class="overlay" id="modalImportPedidoFullML">
+  <div class="modal" style="max-width:800px;">
+    <h3>📥 Importar PDF Full ML — generar pedido de reposición</h3>
+    <p style="font-size:13px;color:var(--text-soft);margin-bottom:16px;">
+      Subí el mismo PDF de instrucciones de preparación que te pide Mercado Libre para el envío a Full.
+      Comparamos lo pedido contra tu <strong>Stock Depósito</strong> actual y armamos un pedido a proveedor
+      solo por lo que te falta — lo que ya tenés en depósito, lo mandás directo con el importador de Movimientos.
+    </p>
+
+    <!-- Upload PDF -->
+    <div style="border:2px dashed var(--border);border-radius:10px;padding:20px;text-align:center;margin-bottom:14px;cursor:pointer;transition:.15s;"
+         id="ppfDropZone"
+         ondragover="event.preventDefault();this.style.borderColor='var(--ml-blue)'"
+         ondragleave="this.style.borderColor='var(--border)'"
+         ondrop="onDropPedidoFullML(event)">
+      <div style="font-size:28px;margin-bottom:8px;">📄</div>
+      <div style="font-size:14px;font-weight:700;color:#0d2259;margin-bottom:4px;">Arrastrá el PDF acá</div>
+      <div style="font-size:12px;color:var(--text-soft);margin-bottom:12px;">o hacé clic para seleccionar</div>
+      <label class="btn btn-primary" style="cursor:pointer;">
+        📂 Seleccionar PDF
+        <input type="file" id="ppfFile" accept=".pdf" style="display:none;" onchange="cargarPDFPedidoFullML(this)">
+      </label>
+      <div id="ppfArchivoNombre" style="font-size:12px;color:var(--text-soft);margin-top:10px;"></div>
+      <div id="ppfProgreso" style="font-size:12px;color:var(--ml-blue);margin-top:6px;display:none;">⏳ Leyendo PDF...</div>
+    </div>
+
+    <details style="margin-bottom:14px;">
+      <summary style="cursor:pointer;font-size:12px;color:var(--text-soft);">✏️ O pegá el texto manualmente</summary>
+      <div class="form-group" style="margin-top:8px;">
+        <textarea id="ppfTexto" rows="6"
+          style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;font-family:monospace;resize:vertical;"
+          placeholder="Pegá el texto copiado del PDF..."></textarea>
+        <button class="btn btn-primary" style="margin-top:8px;" onclick="procesarTextoPedidoFullML()">⚙️ Procesar texto</button>
+      </div>
+    </details>
+
+    <!-- Preview -->
+    <div id="ppfPreviewWrap" style="display:none;">
+      <div style="font-size:13px;font-weight:700;color:#0d2259;margin-bottom:10px;" id="ppfResumen"></div>
+      <div class="table-wrap" style="max-height:340px;overflow-y:auto;margin-bottom:14px;">
+        <table>
+          <thead><tr><th style="width:28px;"></th><th>SKU</th><th>Producto</th><th>Pide ML</th><th>Stock Dep.</th><th>Falta comprar</th><th>Proveedor</th></tr></thead>
+          <tbody id="ppfBody"></tbody>
+        </table>
+      </div>
+      <div style="padding:10px 14px;background:#f0f4ff;border-radius:8px;margin-bottom:14px;font-size:13px;" id="ppfTotales"></div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="cerrarModalImportPedidoFullML()">Cancelar</button>
+      <button class="btn btn-success" id="btnConfirmarPedidoFullML" onclick="confirmarImportPedidoFullML()" style="display:none;">
+        ✔ Generar pedido(s) a proveedor
       </button>
     </div>
   </div>
@@ -6758,6 +6819,149 @@ function limpiarFullML(){
   fullMLLineas=[];
 }
 
+// ── Importador PDF Full ML → Pedidos a Proveedores (compara contra Stock Depósito) ──
+let ppfLineas = [];
+
+function abrirImportadorPedidoFullML(){
+  if(checkViewer("Importar PDF Full ML")) return;
+  document.getElementById("ppfTexto").value = "";
+  document.getElementById("ppfArchivoNombre").textContent = "";
+  document.getElementById("ppfProgreso").style.display = "none";
+  document.getElementById("ppfPreviewWrap").style.display = "none";
+  document.getElementById("btnConfirmarPedidoFullML").style.display = "none";
+  document.getElementById("ppfFile").value = "";
+  ppfLineas = [];
+  document.getElementById("modalImportPedidoFullML").classList.add("show");
+}
+function cerrarModalImportPedidoFullML(){
+  document.getElementById("modalImportPedidoFullML").classList.remove("show");
+  ppfLineas = [];
+}
+function onDropPedidoFullML(event){
+  event.preventDefault();
+  document.getElementById("ppfDropZone").style.borderColor = "var(--border)";
+  const file = event.dataTransfer.files[0];
+  if(file && file.type==="application/pdf") leerPDFPedidoFullML(file);
+  else toast("Subí un archivo PDF.","err");
+}
+function cargarPDFPedidoFullML(input){
+  const file = input.files[0];
+  if(file) leerPDFPedidoFullML(file);
+  input.value = "";
+}
+async function leerPDFPedidoFullML(file){
+  document.getElementById("ppfArchivoNombre").textContent = "📄 "+file.name;
+  document.getElementById("ppfProgreso").style.display = "block";
+  document.getElementById("ppfPreviewWrap").style.display = "none";
+  document.getElementById("btnConfirmarPedidoFullML").style.display = "none";
+  try{
+    if(typeof pdfjsLib === "undefined") throw new Error("PDF.js no disponible. Usá la opción de pegar texto.");
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+    let textoCompleto = "";
+    for(let i=1;i<=pdf.numPages;i++){
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      textoCompleto += content.items.map(item=>item.str).join(" ") + "\n";
+    }
+    document.getElementById("ppfTexto").value = textoCompleto;
+    document.getElementById("ppfProgreso").style.display = "none";
+    procesarTextoPedidoFullML();
+  }catch(e){
+    document.getElementById("ppfProgreso").style.display = "none";
+    toast("Error leyendo PDF: "+e.message,"err",5000);
+    console.error(e);
+  }
+}
+
+function procesarTextoPedidoFullML(){
+  const texto = document.getElementById("ppfTexto").value;
+  if(!texto.trim()){ toast("Pegá el texto del PDF primero.","err"); return; }
+
+  const parseadas = parsearLineasFullMLTexto(texto);
+  ppfLineas = parseadas.map(({sku,unidades})=>{
+    const prod = productos.find(p => p.sku.toUpperCase() === sku.toUpperCase());
+    const stockDep = prod ? calcularStockDeposito(prod.sku) : 0;
+    const falta = Math.max(0, unidades - stockDep);
+    return {
+      sku,
+      pideML: unidades,
+      producto: prod ? prod.nombre : "",
+      enCatalogo: !!prod,
+      stockDep,
+      falta,
+      proveedor: prod ? (prod.proveedor||"SIN PROVEEDOR").toUpperCase() : "SIN PROVEEDOR",
+      costo: prod ? (prod.costo||0) : 0,
+      incluir: falta > 0
+    };
+  });
+
+  if(!ppfLineas.length){ toast("No se encontraron SKU en el texto. Asegurate de copiar todo el PDF.","err"); return; }
+  renderPreviewPedidoFullML();
+}
+
+function renderPreviewPedidoFullML(){
+  const sinCat = ppfLineas.filter(l=>!l.enCatalogo).length;
+  const conFalta = ppfLineas.filter(l=>l.falta>0).length;
+  const okDeposito = ppfLineas.filter(l=>l.enCatalogo && l.falta===0).length;
+
+  document.getElementById("ppfResumen").innerHTML =
+    `${ppfLineas.length} productos detectados &nbsp;·&nbsp; `+
+    `<span style="color:var(--red);">${conFalta} con faltante para comprar</span> &nbsp;·&nbsp; `+
+    `<span style="color:var(--green);">${okDeposito} ya cubiertos por tu depósito</span>`+
+    (sinCat?` &nbsp;·&nbsp; <span style="color:var(--orange);">${sinCat} sin catálogo</span>`:"");
+
+  document.getElementById("ppfBody").innerHTML = ppfLineas.map((l,i)=>`
+    <tr style="${!l.enCatalogo?'opacity:.55;':''}">
+      <td><input type="checkbox" ${l.incluir?'checked':''} ${!l.enCatalogo?'disabled':''} onchange="ppfLineas[${i}].incluir=this.checked;renderPreviewPedidoFullML()"></td>
+      <td><span class="sku-tag">${esc(l.sku)}</span></td>
+      <td style="max-width:200px;font-size:12px;">${l.enCatalogo?esc(l.producto):'<span style="color:var(--orange);">⚠️ No está en tu Catálogo</span>'}</td>
+      <td class="num">${l.pideML}</td>
+      <td class="num ${l.stockDep<l.pideML?'num-neg':'num-pos'}">${l.stockDep}</td>
+      <td class="num" style="font-weight:700;${l.falta>0?'color:var(--red);':''}">
+        ${l.enCatalogo ? `<input type="number" value="${l.falta}" min="0" style="width:64px;padding:3px 5px;border:1.5px solid var(--border);border-radius:5px;font-size:12px;text-align:right;" onchange="ppfLineas[${i}].falta=parseInt(this.value)||0;renderPreviewPedidoFullML()">` : '—'}
+      </td>
+      <td style="font-size:12px;">${esc(l.proveedor)}</td>
+    </tr>`).join("");
+
+  const seleccionadas = ppfLineas.filter(l=>l.incluir && l.enCatalogo && l.falta>0);
+  const porProveedor = {};
+  seleccionadas.forEach(l=>{ (porProveedor[l.proveedor]=porProveedor[l.proveedor]||[]).push(l); });
+  const totalUnidComprar = seleccionadas.reduce((a,l)=>a+l.falta,0);
+  const totalEst = seleccionadas.reduce((a,l)=>a+l.falta*l.costo,0);
+
+  document.getElementById("ppfTotales").innerHTML =
+    `<strong>${seleccionadas.length}</strong> producto(s) a pedir · <strong>${totalUnidComprar}</strong> unidades · `+
+    `Costo estimado: <strong>$${fmt(totalEst)}</strong> · Se va a generar ${Object.keys(porProveedor).length} pedido(s) `+
+    `(${Object.keys(porProveedor).map(esc).join(", ")||"—"})`;
+
+  const btn = document.getElementById("btnConfirmarPedidoFullML");
+  btn.style.display = seleccionadas.length ? "inline-flex" : "none";
+  document.getElementById("ppfPreviewWrap").style.display = "block";
+}
+
+async function confirmarImportPedidoFullML(){
+  if(checkViewer("Generar pedidos")) return;
+  const seleccionadas = ppfLineas.filter(l=>l.incluir && l.enCatalogo && l.falta>0);
+  if(!seleccionadas.length){ toast("No hay nada seleccionado para pedir.","err"); return; }
+
+  const porProveedor = {};
+  seleccionadas.forEach(l=>{
+    (porProveedor[l.proveedor]=porProveedor[l.proveedor]||[]).push({
+      sku:l.sku, nombre:l.producto, cantPedir:l.falta, costo:l.costo
+    });
+  });
+
+  mostrarCargando(true);
+  for(const [prov, lineas] of Object.entries(porProveedor)){
+    await crearBorradorPP(prov, lineas, "Generado desde PDF de envío a Full ML (reposición de faltantes)");
+  }
+  mostrarCargando(false);
+  cerrarModalImportPedidoFullML();
+  renderPedidosProv();
+  toast(`Pedido(s) generado(s) desde PDF Full ML: ${Object.keys(porProveedor).length} proveedor(es) ✅`,"ok",5000);
+}
+
 // ── Importador Full ML PDF ──
 let fullMLLineas = [];
 
@@ -6779,12 +6983,9 @@ function cerrarModalFullML(){
   fullMLLineas = [];
 }
 
-function procesarTextoFullML(){
-  const texto = document.getElementById("fullMLTexto").value;
-  if(!texto.trim()){ toast("Pegá el texto del PDF primero.","err"); return; }
-
-  fullMLLineas = [];
-
+// Parsea el texto del PDF de instrucciones de preparación de Full ML y devuelve [{sku, unidades}]
+// Reutilizada tanto por el importador de "Envío a Full" (Movimientos) como por el de "Pedidos a Proveedores"
+function parsearLineasFullMLTexto(texto){
   // El PDF de ML Full linearizado por PDF.js tiene el formato:
   // "SKU: PR5 PLUS Protector De... Etiquetado obligatorio 5 Código ML:..."
   // Extraemos todos los SKU y todos los números post-"obligatorio" y los emparejamos por posición
@@ -6822,20 +7023,25 @@ function procesarTextoFullML(){
 
   // 3. Emparejar por índice, evitar duplicados
   const vistos = new Set();
+  const resultado = [];
   for(let i = 0; i < skusEncontrados.length; i++){
     const sku = skusEncontrados[i];
     if(vistos.has(sku)) continue;
     vistos.add(sku);
-    const unidades = unidsEncontradas[i] || 0;
-    const prod = productos.find(p => p.sku.toUpperCase() === sku.toUpperCase());
-    fullMLLineas.push({
-      sku, unidades,
-      nombrePDF: "",
-      producto: prod ? prod.nombre : "",
-      enCatalogo: !!prod,
-      incluir: true
-    });
+    resultado.push({sku, unidades: unidsEncontradas[i] || 0});
   }
+  return resultado;
+}
+
+function procesarTextoFullML(){
+  const texto = document.getElementById("fullMLTexto").value;
+  if(!texto.trim()){ toast("Pegá el texto del PDF primero.","err"); return; }
+
+  const parseadas = parsearLineasFullMLTexto(texto);
+  fullMLLineas = parseadas.map(({sku,unidades})=>{
+    const prod = productos.find(p => p.sku.toUpperCase() === sku.toUpperCase());
+    return { sku, unidades, nombrePDF:"", producto: prod ? prod.nombre : "", enCatalogo: !!prod, incluir: true };
+  });
 
   if(!fullMLLineas.length){ toast("No se encontraron SKU en el texto. Asegurate de copiar todo el PDF.","err"); return; }
   renderFullMLPreview();
@@ -7772,13 +7978,13 @@ function mostrarSeccionDirecta(id){
   });
 }
 
-async function crearBorradorPP(proveedor, lineas){
+async function crearBorradorPP(proveedor, lineas, obsPersonalizada){
   const fecha = new Date().toISOString().split("T")[0];
   const total = lineas.reduce((a,l)=>a+l.cantPedir*l.costo,0);
   const pp = {
     fecha, proveedor,
     estado:"borrador",
-    obs: "Generado automáticamente desde Alertas",
+    obs: obsPersonalizada || "Generado automáticamente desde Alertas",
     lineas: lineas.map(l=>({sku:l.sku,nombre:l.nombre,cantidad:l.cantPedir,costo:l.costo})),
     total
   };
