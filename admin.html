@@ -3119,7 +3119,13 @@ async function pushPrecioML(mlItemId, nuevoPrecio){
     body:JSON.stringify({grant_type:"proxy", path:"/items/"+encodeURIComponent(mlItemId), method:"PUT", data:{price:nuevoPrecio}, access_token:mlToken})
   });
   const data=await r.json();
-  return {ok:(r.ok && !data.error), data};
+  // ML suele mandar el detalle real del error dentro de "cause" (array), y el "message" de arriba
+  // queda genérico ("Validation error"). Armamos un mensaje más útil combinando ambos.
+  let detalle = data.message || data.error || "";
+  if(Array.isArray(data.cause) && data.cause.length){
+    detalle += (detalle?" — ":"") + data.cause.map(c=>c.message||c.code||JSON.stringify(c)).join(" · ");
+  }
+  return {ok:(r.ok && !data.error), data, detalle};
 }
 async function verificarMlItem(){
   const el=document.getElementById("pMlItemCheck");
@@ -3165,7 +3171,7 @@ async function actualizarPrecioModal(){
     const res=await pushPrecioML(mlItemId, nuevoPrecio);
     console.log("🔍 Respuesta cruda de ML al actualizar precio:", res);
     if(!res.ok){
-      const msg="No se pudo actualizar: "+(res.data.message||res.data.error||"error desconocido");
+      const msg="No se pudo actualizar: "+(res.detalle||"error desconocido");
       toast(msg,"err",6000); info.textContent="❌ "+msg; info.style.color="#dc2626";
       mostrarCargando(false); return;
     }
@@ -3780,7 +3786,7 @@ async function actualizarPrecioAnalisis(sku){
     const res=await pushPrecioML(p.ml_item_id, nuevoPrecio);
     console.log("🔍 Respuesta cruda de ML al actualizar precio:", res);
     if(!res.ok){
-      toast("No se pudo actualizar: "+(res.data.message||res.data.error||"error desconocido"),"err",6000);
+      toast("No se pudo actualizar: "+(res.detalle||"error desconocido"),"err",6000);
       mostrarCargando(false);
       return;
     }
