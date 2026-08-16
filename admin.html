@@ -1775,6 +1775,8 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
               <button class="btn btn-ghost" onclick="aplicarRetencionesRealesAnalisis()" title="Calcula el % promedio real de IIBB y de IVA+Ganancias a partir de tus ventas ML con facturación sincronizada, y lo carga en los campos de al lado">📊 Usar retenciones reales</button>
               <button class="btn btn-ghost" onclick="sincronizarFeesML()">🔄 Sincronizar comisiones ML</button>
               <span id="ultimaSyncFees" style="font-size:11px;color:var(--text-soft);"></span>
+              <button class="btn btn-ghost" onclick="revisarPreciosDinamicos()" title="Revisa qué publicaciones tienen 'Automatización de precios' activa en ML — esas no se pueden actualizar por acá hasta que se desactive del lado de ML">🎯 Revisar precio dinámico</button>
+              <span id="ultimaSyncDinamico" style="font-size:11px;color:var(--text-soft);"></span>
               <input class="search-input" type="text" id="analisisBuscar" placeholder="Buscar SKU, MLA o producto…" oninput="renderAnalisis()" style="width:180px;">
               <select id="analisisFiltroProveedor" onchange="renderAnalisis()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
                 <option value="">Todos los proveedores</option>
@@ -2976,7 +2978,7 @@ function renderProductos(){
       <td style="text-align:center;"><input type="checkbox" class="prod-check" data-sku="${esc(p.sku)}" onchange="actualizarSeleccion()" style="width:15px;height:15px;cursor:pointer;"></td>
       <td>${thumb}</td>
       <td><span class="sku-tag">${esc(p.sku)}</span></td>
-      <td style="max-width:180px;">${esc(p.nombre)}${p.tipo==='combo'?' <span class="badge badge-orange" title="Combo de '+((p.componentes||[]).length)+' componente(s)" style="font-size:10px;">🧩 Combo</span>':''}</td>
+      <td style="max-width:180px;">${esc(p.nombre)}${p.tipo==='combo'?' <span class="badge badge-orange" title="Combo de '+((p.componentes||[]).length)+' componente(s)" style="font-size:10px;">🧩 Combo</span>':''}${p.precio_dinamico?' <span class="badge badge-orange" title="Tiene &quot;Automatización de precios&quot; activa en ML" style="font-size:10px;">🎯 Precio dinámico</span>':''}</td>
       <td>${esc(p.proveedor||"")}</td>
       <td style="font-size:12px;">${esc(p.rubro||"")}</td>
       <td class="num">$${fmt(p.costo)}</td>
@@ -3125,6 +3127,11 @@ async function pushPrecioML(mlItemId, nuevoPrecio){
   if(Array.isArray(data.cause) && data.cause.length){
     detalle += (detalle?" — ":"") + data.cause.map(c=>c.message||c.code||JSON.stringify(c)).join(" · ");
   }
+  // Caso puntual y frecuente: la publicación tiene "Automatización de precios" (precio dinámico) activa en ML.
+  // En ese caso ML bloquea a propósito cualquier cambio de precio por API — no es un error nuestro.
+  if(data.error==="item.price.not_modifiable" || /dynamic pricing/i.test(detalle)){
+    detalle = "Esta publicación tiene 'Automatización de precios' (precio dinámico) activa en MercadoLibre — ML bloquea a propósito los cambios de precio por API mientras esté prendida. Para poder actualizarla desde acá, desactivá esa automatización en MercadoLibre (Mis publicaciones → esa publicación → Precio) y volvé a intentar.";
+  }
   return {ok:(r.ok && !data.error), data, detalle};
 }
 async function verificarMlItem(){
@@ -3143,8 +3150,9 @@ async function verificarMlItem(){
     const data=await r.json();
     if(!r.ok || data.error || !data.id){ el.textContent="❌ No se encontró esa publicación en ML."; el.style.color="#dc2626"; return; }
     const precio=(data.price!=null)?("$"+Number(data.price).toLocaleString("es-AR")):"";
-    el.textContent="✅ "+(data.title||"(sin título)")+(precio?" — "+precio:"");
-    el.style.color="#16a34a";
+    const tienePrecioDinamico = Array.isArray(data.tags) && data.tags.includes("dynamic_standard_price");
+    el.textContent="✅ "+(data.title||"(sin título)")+(precio?" — "+precio:"")+(tienePrecioDinamico?" ⚠️ Tiene 'Precio dinámico' activo — no se va a poder actualizar el precio por acá hasta que lo desactives en ML.":"");
+    el.style.color=tienePrecioDinamico?"#ea7000":"#16a34a";
   }catch(e){
     el.textContent="⚠️ Error al consultar ML: "+e.message; el.style.color="#dc2626";
   }
@@ -3738,15 +3746,16 @@ function renderAnalisis(){
       <td>
         <div style="display:flex;align-items:center;gap:6px;">
           <span class="sku-tag">${esc(p.sku)}</span>
-          ${p.ml_item_id?`<a href="${linkPublicacionML(p.ml_item_id)}" target="_blank" rel="noopener" title="Abrir publicación en MercadoLibre"><img src="${ML_LOGO_B64}" alt="Ver en ML" style="width:18px;height:18px;object-fit:contain;vertical-align:middle;"></a>`:''}
+          ${p.ml_item_id?`<img src="${ML_LOGO_B64}" alt="Ver en ML" title="Abrir publicación en MercadoLibre" style="width:18px;height:18px;object-fit:contain;vertical-align:middle;cursor:pointer;" onclick="abrirPublicacionML('${esc(p.ml_item_id)}')">`:''}
+          ${p.precio_dinamico?`<span class="badge badge-orange" style="font-size:9px;" title="Tiene 'Automatización de precios' activa en ML — no se puede cambiar el precio por acá hasta que se desactive del lado de MercadoLibre">🎯 Precio dinámico</span>`:''}
         </div>
       </td>
       <td style="max-width:180px;">${esc(p.nombre)}</td>
       <td class="num">$${fmt(p.costo)}</td>
       <td class="num" title="${a.precioMLReal?(a.desactualizado?'⚠️ Distinto al precio cargado en catálogo ($'+fmt(p.precio)+') — actualizá uno de los dos':'Precio real vigente en la publicación de ML'):'Precio de catálogo (sin sincronizar con ML todavía)'}">
         <div style="display:flex;gap:4px;align-items:center;justify-content:flex-end;">
-          <input type="number" id="precioAn_${esc(p.sku)}" value="${a.precio||''}" style="width:82px;padding:4px 6px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;text-align:right;" ${p.ml_item_id?'':'disabled title="Vinculá una Publicación ML en Catálogo primero"'}>
-          ${p.ml_item_id?`<button class="btn btn-ghost" style="padding:4px 8px;font-size:11px;" onclick="actualizarPrecioAnalisis('${esc(p.sku)}')" title="Actualizar este precio en MercadoLibre">💲</button>`:''}
+          <input type="number" id="precioAn_${esc(p.sku)}" value="${a.precio||''}" style="width:82px;padding:4px 6px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;text-align:right;" ${(p.ml_item_id&&!p.precio_dinamico)?'':'disabled title="'+(p.precio_dinamico?'Precio dinámico activo en ML — no editable por acá':'Vinculá una Publicación ML en Catálogo primero')+'"'}>
+          ${(p.ml_item_id&&!p.precio_dinamico)?`<button class="btn btn-ghost" style="padding:4px 8px;font-size:11px;" onclick="actualizarPrecioAnalisis('${esc(p.sku)}')" title="Actualizar este precio en MercadoLibre">💲</button>`:''}
         </div>
         <div style="font-size:10px;color:${a.desactualizado?'var(--red)':'var(--text-soft)'};text-align:right;">${a.precioMLReal?(a.desactualizado?'⚠️ desactualizado':'✓ real ML'):'* sin sincronizar'}</div>
       </td>
@@ -3885,6 +3894,49 @@ async function aplicarRetencionesRealesAnalisis(){
 }
 
 // ── Sincronizar comisiones reales desde ML (/items/:id/fees) ──
+// Revisa en lote (hasta 20 por consulta, usando el multiget de ML) qué publicaciones vinculadas
+// tienen "Automatización de precios" (precio dinámico) activa — esas no se pueden actualizar por API.
+async function revisarPreciosDinamicos(){
+  if(checkViewer("Revisar precio dinámico")) return;
+  if(!mlToken){ await verificarTokenML(); }
+  if(!mlToken){ toast("Primero conectá con MercadoLibre.","err"); return; }
+
+  const conVinculo = productos.filter(p=>p.ml_item_id);
+  if(!conVinculo.length){ toast("No hay productos vinculados a una Publicación ML todavía.","err"); return; }
+
+  mostrarCargando(true);
+  let activos=0, revisados=0, fallidos=0;
+  const LOTE=20;
+  for(let i=0;i<conVinculo.length;i+=LOTE){
+    const lote=conVinculo.slice(i,i+LOTE);
+    const ids=lote.map(p=>p.ml_item_id.toUpperCase()).join(",");
+    try{
+      const r=await fetch(SB_URL+"/functions/v1/ml-oauth", {
+        method:"POST",
+        headers:{"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY},
+        body:JSON.stringify({grant_type:"proxy", path:"/items?ids="+encodeURIComponent(ids)+"&attributes=id,tags", access_token:mlToken})
+      });
+      const data=await r.json();
+      if(!r.ok || data.error || !Array.isArray(data)){ fallidos+=lote.length; continue; }
+      for(const res of data){
+        const body=res.body||{};
+        if(res.code!==200 || !body.id) { fallidos++; continue; }
+        const p=lote.find(x=>x.ml_item_id.toUpperCase()===String(body.id).toUpperCase());
+        if(!p) continue;
+        const esDinamico = Array.isArray(body.tags) && body.tags.includes("dynamic_standard_price");
+        p.precio_dinamico = esDinamico;
+        if(esDinamico) activos++;
+        revisados++;
+        try{ await sbUpdate("productos","sku=eq."+encodeURIComponent(p.sku),{precio_dinamico:esDinamico}); }catch(e){}
+      }
+    }catch(e){ fallidos+=lote.length; }
+    await new Promise(res=>setTimeout(res,200));
+  }
+  mostrarCargando(false);
+  if(revisados>0) await guardarUltimaSync("dinamico","ultimaSyncDinamico");
+  renderAnalisis(); renderProductos();
+  toast(`🎯 Revisados: ${revisados} · Con precio dinámico activo: ${activos}`+(fallidos?` · ${fallidos} con error`:""),activos?"err":"ok",6000);
+}
 async function sincronizarFeesML(){
   if(checkViewer("Sincronizar comisiones ML")) return;
   if(!mlToken){ await verificarTokenML(); }
@@ -4380,7 +4432,7 @@ async function mostrarSeccion(id){
   if(id==="pedidosprov"){ renderPedidosProv(); }
   if(id==="proveedores"){ renderProveedores(); }
   if(id==="ml"){ verificarTokenML(); }
-  if(id==="analisis"){ renderAnalisis(); mostrarUltimaSync("fees","ultimaSyncFees"); }
+  if(id==="analisis"){ renderAnalisis(); mostrarUltimaSync("fees","ultimaSyncFees"); mostrarUltimaSync("dinamico","ultimaSyncDinamico"); }
 }
 
 // ================================================================
@@ -5595,14 +5647,31 @@ async function actualizarTodosCostos(){
 }
 
 // Arma el link directo a una publicación de ML a partir de su ID (ej: "MLA1234567890" -> ".../MLA-1234567890")
-function linkPublicacionML(mlItemId){
-  if(!mlItemId) return "#";
-  const m=mlItemId.trim().toUpperCase().match(/^([A-Z]{2,3})(\d+)$/);
-  if(!m) return "#";
-  const [,prefijo,numero]=m;
-  const dominios={MLA:"mercadolibre.com.ar",MLB:"mercadolivre.com.br",MLM:"mercadolibre.com.mx",MLC:"mercadolibre.cl",MCO:"mercadolibre.com.co"};
-  const dominio=dominios[prefijo]||"mercadolibre.com.ar";
-  return `https://www.${dominio}/${prefijo}-${numero}`;
+// Abre la publicación real de ML: le pide el permalink a la API en el momento (es el único link confiable,
+// el atajo "mercadolibre.com.ar/MLA-XXXX" sin el resto de la URL no siempre redirige bien).
+async function abrirPublicacionML(mlItemId){
+  if(!mlItemId) return;
+  if(!mlToken){ await verificarTokenML(); }
+  if(!mlToken){ toast("Conectá con MercadoLibre primero (pestaña MercadoLibre API).","err"); return; }
+  const ventana = window.open("", "_blank"); // abrir ya (sync) para no chocar con el bloqueador de popups del navegador
+  try{
+    const r=await fetch(SB_URL+"/functions/v1/ml-oauth", {
+      method:"POST",
+      headers:{"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY},
+      body:JSON.stringify({grant_type:"proxy", path:"/items/"+encodeURIComponent(mlItemId), access_token:mlToken})
+    });
+    const data=await r.json();
+    if(!r.ok || data.error || !data.permalink){
+      if(ventana) ventana.close();
+      toast("No se pudo obtener el link real de esa publicación: "+(data.message||data.error||"no encontrada"),"err",6000);
+      return;
+    }
+    if(ventana) ventana.location.href = data.permalink;
+    else window.open(data.permalink, "_blank");
+  }catch(e){
+    if(ventana) ventana.close();
+    toast("Error consultando ML: "+e.message,"err");
+  }
 }
 function costoDeSku(sku){
   const skuUp=(sku||"").toUpperCase().trim();
