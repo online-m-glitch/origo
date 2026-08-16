@@ -229,6 +229,7 @@ tr:hover td{background:#fafbfc;}
 .modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:20px;}
 .modal-sm{max-width:600px;} .modal-sm h3{margin-bottom:16px;}
 .modal-sm h3{margin-bottom:16px;}
+.modal-maximizado{max-width:96vw !important;width:96vw !important;max-height:94vh !important;height:94vh !important;}
 
 /* ========== SEARCH / TOOLBAR ========== */
 .toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
@@ -2000,8 +2001,13 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
 <!-- ========== MODALES ========== -->
 <!-- Modal producto -->
 <div class="overlay" id="modalProducto">
-  <div class="modal" style="max-width:640px;">
-    <h3 id="modalProdTitle">Producto</h3>
+  <div class="modal" id="modalProductoBox" style="max-width:920px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+      <h3 id="modalProdTitle" style="margin-bottom:0;">Producto</h3>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="toggleMaximizarModalProducto()" title="Agrandar/achicar esta ventana">
+        <span id="modalProdMaxIcon">⛶</span> <span id="modalProdMaxTexto">Maximizar</span>
+      </button>
+    </div>
     <div class="form-grid cols3" style="margin-bottom:12px;">
       <div class="form-group">
         <label>SKU *</label>
@@ -3106,6 +3112,12 @@ function calcularCostoDesdeComponentes(mostrarToast){
   calcMargenModal();
   if(mostrarToast) toast(faltantes?`Costo recalculado (⚠️ ${faltantes} componente(s) sin encontrar).`:"Costo recalculado desde componentes ✅","ok");
 }
+function toggleMaximizarModalProducto(){
+  const box=document.getElementById("modalProductoBox");
+  const maximizado=box.classList.toggle("modal-maximizado");
+  document.getElementById("modalProdMaxIcon").textContent=maximizado?"🗗":"⛶";
+  document.getElementById("modalProdMaxTexto").textContent=maximizado?"Restaurar":"Maximizar";
+}
 function abrirModalProducto(){
   editandoProdIdx=-1;
   document.getElementById("modalProdTitle").textContent="Nuevo producto";
@@ -3128,6 +3140,9 @@ function abrirModalProducto(){
   toggleComboWrap();
   productoImagenesEditor=[];
   renderFotosGrid();
+  document.getElementById("modalProductoBox").classList.remove("modal-maximizado");
+  document.getElementById("modalProdMaxIcon").textContent="⛶";
+  document.getElementById("modalProdMaxTexto").textContent="Maximizar";
   document.getElementById("modalProducto").classList.add("show");
 }
 function editarProducto(idx){
@@ -3156,6 +3171,9 @@ function editarProducto(idx){
   productoImagenesEditor=Array.isArray(p.imagenes)&&p.imagenes.length?p.imagenes.slice():(p.img?[p.img]:[]);
   renderFotosGrid();
   calcMargenModal();
+  document.getElementById("modalProductoBox").classList.remove("modal-maximizado");
+  document.getElementById("modalProdMaxIcon").textContent="⛶";
+  document.getElementById("modalProdMaxTexto").textContent="Maximizar";
   document.getElementById("modalProducto").classList.add("show");
 }
 function cerrarModalProducto(){ document.getElementById("modalProducto").classList.remove("show"); }
