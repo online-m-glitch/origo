@@ -2395,6 +2395,10 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
       <label>📧 Email del proveedor</label>
       <input type="email" id="ppEmail" placeholder="proveedor@ejemplo.com">
     </div>
+    <div class="form-group" style="margin-bottom:16px;">
+      <label>📝 Observaciones (opcional)</label>
+      <textarea id="ppEnviarObs" rows="2" placeholder="Se incluye en el mensaje que se envía" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:13px;font-family:inherit;resize:vertical;"></textarea>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="document.getElementById('modalEnviarPP').classList.remove('show')">Cancelar</button>
       <button class="btn btn-success" onclick="enviarPPWhatsApp()">📱 WhatsApp</button>
