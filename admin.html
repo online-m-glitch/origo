@@ -2341,6 +2341,38 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
   </div>
 </div>
 
+<!-- Modal simulador de precio -->
+<div class="overlay" id="modalSimuladorPrecio">
+  <div class="modal" style="max-width:520px;">
+    <h3>🧮 Simulador de precio — <span id="simSkuNombre"></span></h3>
+    <div style="font-size:11px;color:var(--text-soft);margin-bottom:14px;" id="simDatosBase"></div>
+
+    <div class="form-group" style="margin-bottom:18px;">
+      <label>Precio a simular ($)</label>
+      <input type="number" id="simPrecioInput" style="font-size:18px;font-weight:700;padding:10px 12px;" oninput="actualizarSimuladorPrecio()">
+    </div>
+
+    <div style="background:#f0f4ff;border-radius:8px;padding:12px 14px;margin-bottom:18px;font-size:13px;" id="simResultado"></div>
+
+    <div style="font-size:12px;font-weight:700;color:#0d2259;margin-bottom:8px;">📋 Precios de referencia según margen</div>
+    <div class="table-wrap" style="margin-bottom:18px;">
+      <table>
+        <thead><tr><th>Margen</th><th>Precio necesario</th><th></th></tr></thead>
+        <tbody id="simTablaReferencia"></tbody>
+      </table>
+    </div>
+
+    <div style="font-size:11px;color:var(--text-soft);margin-bottom:14px;">
+      💡 Estos son los precios que <strong>vos</strong> vas a cargar como mínimo/máximo en la Automatización de precios de MercadoLibre — ORIGO no modifica nada acá, solo calcula.
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="document.getElementById('modalSimuladorPrecio').classList.remove('show')">Cerrar</button>
+      <button class="btn btn-primary" id="btnIrAPublicacionSim" onclick="abrirPublicacionML(_simProductoActual?.ml_item_id)">🔗 Ir a la publicación en ML</button>
+    </div>
+  </div>
+</div>
+
 
 <!-- Modal editar pedido proveedor -->
 <div class="overlay" id="modalPedidoProv">
@@ -3696,6 +3728,90 @@ function eliminarCC(idx){
 // ================================================================
 // ANÁLISIS ML
 // ================================================================
+// ── Simulador de precio (mismas fórmulas que calcAnaliML, pero con un precio a elección) ──
+// No modifica nada en ML — es solo para calcular qué precio conviene cargar a mano en la Automatización de precios.
+// Importante: "fee_amount" (comisión real sincronizada) ya viene TOTAL a un precio puntual (fee_pct es
+// fee_amount/precio, ya con la parte fija mezclada adentro) — para simular a OTRO precio hay que separar
+// la parte fija de la parte proporcional, si no la duplicamos.
+function _tasaComisionPura(p){
+  const feeReal=feesML[p.sku];
+  const comisionReal = !!feeReal;
+  if(!comisionReal) return {comisionReal:false, tasa:0.10, fijo:0};
+  const precioBase = feeReal.ml_price || p.precio || 1;
+  const fijo = feeReal.fee_fixed||0;
+  const tasa = Math.max(0, ((feeReal.fee_amount||0)-fijo) / (precioBase||1));
+  return {comisionReal:true, tasa, fijo, envio: feeReal.shipping_cost||0};
+}
+function calcConPrecioSimulado(p, precioSim){
+  const costo=p.costo||0;
+  const {comisionReal, tasa, fijo, envio=0}=_tasaComisionPura(p);
+  const impuestoPct = (appConfig.impuesto_pct!=null) ? Number(appConfig.impuesto_pct) : 0;
+  const percepcionPct = (appConfig.percepcion_pct!=null) ? Number(appConfig.percepcion_pct) : 0;
+
+  const comisionPct = precioSim*tasa;
+  const comision = comisionPct+fijo;
+  const impuesto = precioSim*(impuestoPct/100);
+  const percepcion = precioSim*(percepcionPct/100);
+  const recibis = precioSim-comision-envio-impuesto-percepcion;
+  const margen = recibis-costo;
+  const margenPct = precioSim>0?(margen/precioSim)*100:0;
+  return { comisionReal, comisionPctRate:tasa, comisionFixed:fijo, envio, impuestoPct, percepcionPct, comision, impuesto, percepcion, recibis, margen, margenPct };
+}
+// Despeja el precio necesario para lograr exactamente el margen objetivo (mismo modelo que calcConPrecioSimulado)
+function precioParaMargen(p, margenObjetivoPct){
+  const costo=p.costo||0;
+  const {tasa, fijo, envio=0}=_tasaComisionPura(p);
+  const impuestoPct = (appConfig.impuesto_pct!=null) ? Number(appConfig.impuesto_pct) : 0;
+  const percepcionPct = (appConfig.percepcion_pct!=null) ? Number(appConfig.percepcion_pct) : 0;
+  const k = 1 - tasa - (impuestoPct/100) - (percepcionPct/100);
+  const denom = k - (margenObjetivoPct/100);
+  if(denom<=0) return null; // ese margen es matemáticamente imposible con estos costos fijos (comisión/envío muy altos)
+  return (fijo+envio+costo)/denom;
+}
+let _simProductoActual=null;
+function abrirSimuladorPrecio(sku){
+  const p=productos.find(x=>(x.sku||"").toUpperCase()===(sku||"").toUpperCase());
+  if(!p) return;
+  _simProductoActual=p;
+  const feeReal=feesML[p.sku];
+  document.getElementById("simSkuNombre").textContent=p.sku+" — "+p.nombre;
+  document.getElementById("simDatosBase").innerHTML =
+    `Costo: $${fmt(p.costo||0)} · Comisión: ${feeReal?'real ✓ ('+(feeReal.fee_pct||0).toFixed(1)+'% + $'+fmt(feeReal.fee_fixed||0)+' fijo)':'estimada 10% *'} · `+
+    `Envío: ${feeReal?'$'+fmt(feeReal.shipping_cost||0)+' (real)':'$0 (sin sincronizar)'} · Impuesto+Percepción estimados: ${((appConfig.impuesto_pct||0)+(appConfig.percepcion_pct||0)).toFixed(1)}%`;
+
+  document.getElementById("simPrecioInput").value = Math.round((p.precio||feeReal?.ml_price||p.costo*1.5||0));
+  document.getElementById("btnIrAPublicacionSim").style.display = p.ml_item_id ? "inline-flex" : "none";
+  actualizarSimuladorPrecio();
+  document.getElementById("modalSimuladorPrecio").classList.add("show");
+}
+function actualizarSimuladorPrecio(){
+  const p=_simProductoActual;
+  if(!p) return;
+  const precioSim=parseFloat(document.getElementById("simPrecioInput").value)||0;
+  const r=calcConPrecioSimulado(p, precioSim);
+  const color = r.margenPct>=25?"#16a34a":r.margenPct>=10?"#ea7000":"#dc2626";
+  document.getElementById("simResultado").innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;">
+      <div>Comisión: <strong>$${fmt(r.comision)}</strong></div>
+      <div>Envío: <strong>$${fmt(r.envio)}</strong></div>
+      <div>Impuesto: <strong>$${fmt(r.impuesto)}</strong></div>
+      <div>Percepción: <strong>$${fmt(r.percepcion)}</strong></div>
+      <div>Recibís: <strong>$${fmt(r.recibis)}</strong></div>
+      <div>Ganancia: <strong style="color:${color};">$${fmt(r.margen)}</strong></div>
+    </div>
+    <div style="margin-top:8px;font-size:16px;font-weight:800;color:${color};">Margen: ${r.margenPct.toFixed(1)}%</div>
+  `;
+
+  const objetivos=[0,10,15,20,25,30];
+  document.getElementById("simTablaReferencia").innerHTML = objetivos.map(m=>{
+    const precioNecesario=precioParaMargen(p,m);
+    return `<tr>
+      <td>${m}%${m===0?' (punto de equilibrio)':''}</td>
+      <td class="num" style="font-weight:700;">${precioNecesario!=null?'$'+fmt(precioNecesario):'—'}</td>
+      <td>${precioNecesario!=null?`<button class="btn btn-ghost btn-sm" onclick="document.getElementById('simPrecioInput').value=${Math.round(precioNecesario)};actualizarSimuladorPrecio()">Probar</button>`:'No alcanza'}</td>
+    </tr>`;
+  }).join("");
+}
 function calcAnaliML(p){
   const precioCatalogo=p.precio||0, costo=p.costo||0;
   const feeReal=feesML[p.sku];
@@ -3758,6 +3874,7 @@ function renderAnalisis(){
       <td>
         <div style="display:flex;align-items:center;gap:6px;">
           <span class="sku-tag">${esc(p.sku)}</span>
+          <span title="Simulador de precio" style="cursor:pointer;font-size:15px;" onclick="abrirSimuladorPrecio('${esc(p.sku)}')">🧮</span>
           ${p.ml_item_id?`<img src="${ML_LOGO_B64}" alt="Ver en ML" title="Abrir publicación en MercadoLibre" style="width:18px;height:18px;object-fit:contain;vertical-align:middle;cursor:pointer;" onclick="abrirPublicacionML('${esc(p.ml_item_id)}')">`:''}
           ${p.precio_dinamico?`<span class="badge badge-orange" style="font-size:9px;cursor:pointer;" title="Tiene 'Automatización de precios' activa en ML — hacé clic para ver el detalle y poder desactivarla" onclick="verAutomatizacionPrecio('${esc(p.ml_item_id)}','${esc(p.sku)}')">🎯 Precio dinámico</span>`:''}
         </div>
