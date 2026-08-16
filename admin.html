@@ -1763,21 +1763,10 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
       </div>
       <div style="padding:24px;">
         <div class="card">
-          <div class="card-header">
-            <h3>Rentabilidad por producto</h3>
-            <div style="display:flex;gap:8px;align-items:center;">
-              <label style="font-size:12px;color:var(--text-soft);white-space:nowrap;">Impuesto estimado % (IIBB):
-                <input type="number" id="impuestoPctInput" step="0.1" min="0" style="width:64px;padding:5px 8px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;margin-left:4px;" onchange="guardarImpuestoPct()">
-              </label>
-              <label style="font-size:12px;color:var(--text-soft);white-space:nowrap;">Percepción estimada % (IVA+Ganancias):
-                <input type="number" id="percepcionPctInput" step="0.1" min="0" style="width:64px;padding:5px 8px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;margin-left:4px;" onchange="guardarPercepcionPct()">
-              </label>
-              <button class="btn btn-ghost" onclick="aplicarRetencionesRealesAnalisis()" title="Calcula el % promedio real de IIBB y de IVA+Ganancias a partir de tus ventas ML con facturación sincronizada, y lo carga en los campos de al lado">📊 Usar retenciones reales</button>
-              <button class="btn btn-ghost" onclick="sincronizarFeesML()">🔄 Sincronizar comisiones ML</button>
-              <span id="ultimaSyncFees" style="font-size:11px;color:var(--text-soft);"></span>
-              <button class="btn btn-ghost" onclick="revisarPreciosDinamicos()" title="Revisa qué publicaciones tienen 'Automatización de precios' activa, y cuáles son publicaciones de Catálogo de ML — ambos casos tienen reglas de precio distintas">🎯 Revisar precio dinámico / catálogo</button>
-              <span id="ultimaSyncDinamico" style="font-size:11px;color:var(--text-soft);"></span>
-              <input class="search-input" type="text" id="analisisBuscar" placeholder="Buscar SKU, MLA o producto…" oninput="renderAnalisis()" style="width:180px;">
+          <div class="card-header" style="flex-direction:column;align-items:stretch;gap:10px;">
+            <h3 style="flex:none;">Rentabilidad por producto</h3>
+            <div class="toolbar">
+              <input class="search-input" type="text" id="analisisBuscar" placeholder="Buscar SKU, MLA o producto…" oninput="renderAnalisis()" style="width:200px;">
               <select id="analisisFiltroProveedor" onchange="renderAnalisis()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
                 <option value="">Todos los proveedores</option>
               </select>
@@ -1787,6 +1776,19 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
                 <option value="Revisar">A revisar</option>
                 <option value="Pérdida">Con pérdida</option>
               </select>
+            </div>
+            <div class="toolbar" style="padding-top:8px;border-top:1px dashed var(--border);">
+              <label style="font-size:12px;color:var(--text-soft);white-space:nowrap;">Impuesto est. % (IIBB):
+                <input type="number" id="impuestoPctInput" step="0.1" min="0" style="width:56px;padding:5px 8px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;margin-left:4px;" onchange="guardarImpuestoPct()">
+              </label>
+              <label style="font-size:12px;color:var(--text-soft);white-space:nowrap;">Percepción est. % (IVA+Gan.):
+                <input type="number" id="percepcionPctInput" step="0.1" min="0" style="width:56px;padding:5px 8px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;margin-left:4px;" onchange="guardarPercepcionPct()">
+              </label>
+              <button class="btn btn-ghost btn-sm" onclick="aplicarRetencionesRealesAnalisis()" title="Calcula el % promedio real de IIBB y de IVA+Ganancias a partir de tus ventas ML con facturación sincronizada, y lo carga en los campos de al lado">📊 Retenciones reales</button>
+              <button class="btn btn-ghost btn-sm" onclick="sincronizarFeesML()" title="Sincronizar comisiones ML">🔄 Comisiones ML</button>
+              <span id="ultimaSyncFees" style="font-size:10px;color:var(--text-soft);"></span>
+              <button class="btn btn-ghost btn-sm" onclick="revisarPreciosDinamicos()" title="Revisa qué publicaciones tienen 'Automatización de precios' activa, y cuáles son publicaciones de Catálogo de ML — ambos casos tienen reglas de precio distintas">🎯 Precio dinámico / catálogo</button>
+              <span id="ultimaSyncDinamico" style="font-size:10px;color:var(--text-soft);"></span>
             </div>
           </div>
           <div class="table-wrap">
@@ -2368,7 +2370,7 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
 
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="document.getElementById('modalSimuladorPrecio').classList.remove('show')">Cerrar</button>
-      <button class="btn btn-primary" id="btnIrAPublicacionSim" onclick="abrirPublicacionML(_simProductoActual?.ml_item_id)">🔗 Ir a la publicación en ML</button>
+      <button class="btn btn-primary" id="btnIrAPublicacionSim" onclick="abrirEdicionPublicacionML(_simProductoActual?.sku)">✏️ Modificar en ML</button>
     </div>
   </div>
 </div>
@@ -3022,7 +3024,7 @@ function renderProductos(){
       <td style="text-align:center;"><input type="checkbox" class="prod-check" data-sku="${esc(p.sku)}" onchange="actualizarSeleccion()" style="width:15px;height:15px;cursor:pointer;"></td>
       <td>${thumb}</td>
       <td><span class="sku-tag">${esc(p.sku)}</span></td>
-      <td style="max-width:180px;">${esc(p.nombre)}${p.tipo==='combo'?' <span class="badge badge-orange" title="Combo de '+((p.componentes||[]).length)+' componente(s)" style="font-size:10px;">🧩 Combo</span>':''}${p.precio_dinamico?' <span class="badge badge-orange" title="Tiene &quot;Automatización de precios&quot; activa en ML" style="font-size:10px;">🎯 Precio dinámico</span>':''}${p.es_catalogo?' <span class="badge badge-blue" title="Es una publicación de Catálogo de MercadoLibre" style="font-size:10px;">📘 Catálogo ML</span>':''}</td>
+      <td style="max-width:180px;">${esc(p.nombre)}${p.tipo==='combo'?' <span class="badge badge-orange" title="Combo de '+((p.componentes||[]).length)+' componente(s)" style="font-size:10px;padding:2px 5px;">🧩</span>':''}${p.precio_dinamico?' <span class="badge badge-orange" title="Tiene &quot;Automatización de precios&quot; activa en ML" style="font-size:10px;padding:2px 5px;">🎯</span>':''}${p.es_catalogo?' <span class="badge badge-blue" title="Es una publicación de Catálogo de MercadoLibre" style="font-size:10px;padding:2px 5px;">📘</span>':''}</td>
       <td>${esc(p.proveedor||"")}</td>
       <td style="font-size:12px;">${esc(p.rubro||"")}</td>
       <td class="num">$${fmt(p.costo)}</td>
@@ -3876,8 +3878,8 @@ function renderAnalisis(){
           <span class="sku-tag">${esc(p.sku)}</span>
           <span title="Simulador de precio" style="cursor:pointer;font-size:15px;" onclick="abrirSimuladorPrecio('${esc(p.sku)}')">🧮</span>
           ${p.ml_item_id?`<img src="${ML_LOGO_B64}" alt="Ver en ML" title="Abrir publicación en MercadoLibre" style="width:18px;height:18px;object-fit:contain;vertical-align:middle;cursor:pointer;" onclick="abrirPublicacionML('${esc(p.ml_item_id)}')">`:''}
-          ${p.precio_dinamico?`<span class="badge badge-orange" style="font-size:9px;cursor:pointer;" title="Tiene 'Automatización de precios' activa en ML — hacé clic para ver el detalle y poder desactivarla" onclick="verAutomatizacionPrecio('${esc(p.ml_item_id)}','${esc(p.sku)}')">🎯 Precio dinámico</span>`:''}
-          ${p.es_catalogo?`<span class="badge badge-blue" style="font-size:9px;" title="Es una publicación de Catálogo de MercadoLibre">📘 Catálogo ML</span>`:''}
+          ${p.precio_dinamico?`<span class="badge badge-orange" style="font-size:9px;padding:2px 5px;cursor:pointer;" title="Tiene 'Automatización de precios' activa en ML — hacé clic para ver el detalle y poder desactivarla" onclick="verAutomatizacionPrecio('${esc(p.ml_item_id)}','${esc(p.sku)}')">🎯</span>`:''}
+          ${p.es_catalogo?`<span class="badge badge-blue" style="font-size:9px;padding:2px 5px;" title="Es una publicación de Catálogo de MercadoLibre">📘</span>`:''}
         </div>
       </td>
       <td style="max-width:180px;">${esc(p.nombre)}</td>
@@ -4057,10 +4059,11 @@ async function revisarPreciosDinamicos(){
         const esCatalogo = body.catalog_listing===true;
         p.precio_dinamico = esDinamico;
         p.es_catalogo = esCatalogo;
+        p.catalog_product_id = body.catalog_product_id||null;
         if(esDinamico) activos++;
         if(esCatalogo) catalogo++;
         revisados++;
-        try{ await sbUpdate("productos","sku=eq."+encodeURIComponent(p.sku),{precio_dinamico:esDinamico, es_catalogo:esCatalogo}); }catch(e){}
+        try{ await sbUpdate("productos","sku=eq."+encodeURIComponent(p.sku),{precio_dinamico:esDinamico, es_catalogo:esCatalogo, catalog_product_id:p.catalog_product_id}); }catch(e){}
       }
     }catch(e){ fallidos+=lote.length; }
     await new Promise(res=>setTimeout(res,200));
@@ -5805,6 +5808,23 @@ async function abrirPublicacionML(mlItemId){
     if(ventana) ventana.close();
     toast("Error consultando ML: "+e.message,"err");
   }
+}
+
+// Abre directo la pantalla de EDICIÓN de la publicación (no la vista pública) — para publicaciones
+// de Catálogo hay que editar por el ID de catálogo (MLAU...), no por el item_id (MLA...) de la oferta propia.
+function abrirEdicionPublicacionML(sku){
+  const p=productos.find(x=>(x.sku||"").toUpperCase()===(sku||"").toUpperCase());
+  if(!p || !p.ml_item_id){ toast("Este producto no tiene una Publicación ML vinculada.","err"); return; }
+  let idParaEditar = p.ml_item_id;
+  if(p.es_catalogo){
+    if(!p.catalog_product_id){
+      toast("Es una publicación de Catálogo, pero todavía no tengo el ID de catálogo guardado — andá a Análisis ML y apretá '🎯 Revisar precio dinámico / catálogo' una vez, y volvé a intentar.","err",7000);
+      return;
+    }
+    idParaEditar = p.catalog_product_id;
+  }
+  const url = "https://www.mercadolibre.com.ar/publicaciones/"+encodeURIComponent(idParaEditar)+"/modificar/omni/variation";
+  window.open(url, "_blank");
 }
 
 // ── Automatización de precios (precio dinámico) — ver estado y desactivar ──
