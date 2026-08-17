@@ -169,6 +169,9 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 }
 .card-header h3{font-size:14px;font-weight:700;flex:1;}
 .table-wrap{overflow-x:auto;}
+.scroll-mirror-top{overflow-x:auto;overflow-y:hidden;height:14px;display:none;}
+.scroll-mirror-top::-webkit-scrollbar{height:10px;}
+.scroll-mirror-top div{height:1px;}
 table{width:100%;border-collapse:collapse;font-size:13px;}
 th{
   background:#0d2259;color:#fff;
@@ -3983,6 +3986,41 @@ function aplicarTema(pref){
     });
   }
 })();
+
+// ── Barra de scroll horizontal "espejo" arriba de cualquier tabla ancha ──
+// Evita tener que bajar hasta el final de una tabla larga para encontrar la barra de scroll horizontal.
+// Se aplica sola a cualquier .table-wrap del sistema, sin tener que tocar cada pantalla.
+function _sincronizarScrollMirrors(){
+  document.querySelectorAll(".table-wrap").forEach(wrap=>{
+    if(wrap.offsetParent===null) return; // no gastar cálculo en tablas de secciones ocultas
+    const necesita = wrap.scrollWidth > wrap.clientWidth + 4;
+    let mirror = wrap.previousElementSibling;
+    const esMirror = mirror && mirror.classList && mirror.classList.contains("scroll-mirror-top");
+    if(necesita){
+      if(!esMirror){
+        mirror = document.createElement("div");
+        mirror.className = "scroll-mirror-top";
+        const inner = document.createElement("div");
+        mirror.appendChild(inner);
+        wrap.parentNode.insertBefore(mirror, wrap);
+        mirror.addEventListener("scroll", ()=>{ wrap.scrollLeft = mirror.scrollLeft; });
+        wrap.addEventListener("scroll", ()=>{ mirror.scrollLeft = wrap.scrollLeft; });
+      }
+      mirror.firstChild.style.width = wrap.scrollWidth+"px";
+      mirror.style.display = "block";
+    } else if(esMirror){
+      mirror.style.display = "none";
+    }
+  });
+}
+let _scrollMirrorTimeout=null;
+function _programarSincronizarScrollMirrors(){
+  clearTimeout(_scrollMirrorTimeout);
+  _scrollMirrorTimeout=setTimeout(_sincronizarScrollMirrors, 180);
+}
+new MutationObserver(_programarSincronizarScrollMirrors).observe(document.body, {childList:true, subtree:true});
+window.addEventListener("resize", _programarSincronizarScrollMirrors);
+_programarSincronizarScrollMirrors();
 
 // ── "Última sincronización" — helper genérico para cualquier pantalla con un botón de sync ──
 async function guardarUltimaSync(clave, elId){
