@@ -658,11 +658,43 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
                 ⬆️ Importar CSV
                 <input type="file" id="csvImportInput" class="admin-only" accept=".csv" style="display:none;" onchange="importarCSV(this)">
               </label>
+              <div style="position:relative;">
+                <button class="btn btn-ghost" onclick="toggleMenuColumnas()" title="Elegir qué columnas mostrar">⚙️ Columnas</button>
+                <div id="menuColumnasCatalogo" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--surface);border:1.5px solid var(--border);border-radius:8px;box-shadow:var(--shadow-lg);padding:10px 14px;z-index:50;min-width:200px;">
+                  <div style="font-size:11px;font-weight:700;color:var(--text-soft);margin-bottom:6px;">Columnas opcionales</div>
+                  <label style="display:block;font-size:13px;padding:3px 0;cursor:pointer;"><input type="checkbox" data-col-toggle="rubro" onchange="toggleColumnaCatalogo('rubro',this.checked)"> Rubro</label>
+                  <label style="display:block;font-size:13px;padding:3px 0;cursor:pointer;"><input type="checkbox" data-col-toggle="preciotienda" onchange="toggleColumnaCatalogo('preciotienda',this.checked)"> Precio Tienda</label>
+                  <label style="display:block;font-size:13px;padding:3px 0;cursor:pointer;"><input type="checkbox" data-col-toggle="margenml" onchange="toggleColumnaCatalogo('margenml',this.checked)"> Margen % ML</label>
+                  <label style="display:block;font-size:13px;padding:3px 0;cursor:pointer;"><input type="checkbox" data-col-toggle="margentienda" onchange="toggleColumnaCatalogo('margentienda',this.checked)"> Margen % Tienda</label>
+                  <label style="display:block;font-size:13px;padding:3px 0;cursor:pointer;"><input type="checkbox" data-col-toggle="stockmin" onchange="toggleColumnaCatalogo('stockmin',this.checked)"> Stock Mín</label>
+                  <label style="display:block;font-size:13px;padding:3px 0;cursor:pointer;"><input type="checkbox" data-col-toggle="tienda" onchange="toggleColumnaCatalogo('tienda',this.checked)"> Tienda (visible)</label>
+                  <label style="display:block;font-size:13px;padding:3px 0;cursor:pointer;"><input type="checkbox" data-col-toggle="ml" onchange="toggleColumnaCatalogo('ml',this.checked)"> Ícono ML</label>
+                  <div style="font-size:10px;color:var(--text-soft);margin-top:6px;border-top:1px solid var(--border);padding-top:6px;">SKU, Producto, Proveedor, Costo, Precio ML, Stock y Acciones siempre se muestran.</div>
+                </div>
+              </div>
             </div>
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th style="width:32px;"><input type="checkbox" id="checkAll" onchange="toggleCheckAll(this.checked)" style="width:15px;height:15px;cursor:pointer;"></th><th>Img</th><th>SKU</th><th>Producto</th><th>Proveedor</th><th>Rubro</th><th>Costo ($)</th><th>Precio ML ($)</th><th>Precio Tienda ($)</th><th>Margen % ML</th><th>Margen % Tienda</th><th>Stock Dep.</th><th>Stock Full</th><th>Stock Mín</th><th>Tienda</th><th style="text-align:center;">ML</th><th>Acciones</th></tr></thead>
+              <thead><tr>
+                <th style="width:32px;" data-col="check"><input type="checkbox" id="checkAll" onchange="toggleCheckAll(this.checked)" style="width:15px;height:15px;cursor:pointer;"></th>
+                <th data-col="img">Img</th>
+                <th data-col="sku">SKU</th>
+                <th data-col="producto">Producto</th>
+                <th data-col="proveedor">Proveedor</th>
+                <th data-col="rubro">Rubro</th>
+                <th data-col="costo">Costo ($)</th>
+                <th data-col="precioml">Precio ML ($)</th>
+                <th data-col="preciotienda">Precio Tienda ($)</th>
+                <th data-col="margenml">Margen % ML</th>
+                <th data-col="margentienda">Margen % Tienda</th>
+                <th data-col="stockdep">Stock Dep.</th>
+                <th data-col="stockfull">Stock Full</th>
+                <th data-col="stockmin">Stock Mín</th>
+                <th data-col="tienda">Tienda</th>
+                <th data-col="ml" style="text-align:center;">ML</th>
+                <th data-col="acciones">Acciones</th>
+              </tr></thead>
               <tbody id="productosBody"></tbody>
             </table>
             <div class="empty" id="productosEmpty" style="display:none;"><div class="icon">📦</div><p>No hay productos que coincidan.</p></div>
@@ -3030,23 +3062,23 @@ function renderProductos(){
       ? `<div style="position:relative;display:inline-block;"><img class="thumb" src="${p.img}" alt="" onerror="this.style.display='none'">${cantFotos>1?`<span style="position:absolute;bottom:-4px;right:-4px;background:var(--ml-blue);color:#fff;font-size:9px;font-weight:700;border-radius:8px;padding:1px 4px;">+${cantFotos-1}</span>`:''}</div>`
       : `<div class="no-thumb">sin img</div>`;
     return `<tr>
-      <td style="text-align:center;"><input type="checkbox" class="prod-check" data-sku="${esc(p.sku)}" onchange="actualizarSeleccion()" style="width:15px;height:15px;cursor:pointer;"></td>
-      <td>${thumb}</td>
-      <td><span class="sku-tag">${esc(p.sku)}</span></td>
-      <td style="max-width:180px;">${esc(p.nombre)}${p.tipo==='combo'?' <span class="badge badge-orange" title="Combo de '+((p.componentes||[]).length)+' componente(s)" style="font-size:10px;padding:2px 5px;">🧩</span>':''}${p.precio_dinamico?' <span class="badge badge-orange" title="Tiene &quot;Automatización de precios&quot; activa en ML" style="font-size:10px;padding:2px 5px;">🎯</span>':''}${p.es_catalogo?' <span class="badge badge-blue" title="Es una publicación de Catálogo de MercadoLibre" style="font-size:10px;padding:2px 5px;">📘</span>':''}</td>
-      <td>${esc(p.proveedor||"")}</td>
-      <td style="font-size:12px;">${esc(p.rubro||"")}</td>
-      <td class="num">$${fmt(p.costo)}</td>
-      <td class="num">$${fmt(p.precio)}</td>
-      <td class="num">$${fmt(p.precioTienda||0)}</td>
-      <td class="num ${margenCls}">${margen}</td>
-      <td class="num ${margenTiendaCls}">${margenTienda}</td>
-      <td class="num ${stockDep<=0?'num-neg':''}">${stockDep}</td>
-      <td class="num" style="color:var(--ml-blue);font-weight:700;">${stockFull}</td>
-      <td class="num">${p.stockMin||0}</td>
-      <td><span class="badge ${p.stockOn!==0?'badge-green':'badge-red'}">${p.stockOn!==0?'Visible':'Oculto'}</span></td>
-      <td style="text-align:center;">${p.ml_item_id?`<img src="${ML_LOGO_B64}" alt="Vinculado a ML" title="Vinculado a ML: ${esc(p.ml_item_id)}" style="width:22px;height:22px;object-fit:contain;">`:''}</td>
-      <td><div class="btn-group">
+      <td data-col="check" style="text-align:center;"><input type="checkbox" class="prod-check" data-sku="${esc(p.sku)}" onchange="actualizarSeleccion()" style="width:15px;height:15px;cursor:pointer;"></td>
+      <td data-col="img">${thumb}</td>
+      <td data-col="sku"><span class="sku-tag">${esc(p.sku)}</span></td>
+      <td data-col="producto" style="max-width:180px;">${esc(p.nombre)}${p.tipo==='combo'?' <span class="badge badge-orange" title="Combo de '+((p.componentes||[]).length)+' componente(s)" style="font-size:10px;padding:2px 5px;">🧩</span>':''}${p.precio_dinamico?' <span class="badge badge-orange" title="Tiene &quot;Automatización de precios&quot; activa en ML" style="font-size:10px;padding:2px 5px;">🎯</span>':''}${p.es_catalogo?' <span class="badge badge-blue" title="Es una publicación de Catálogo de MercadoLibre" style="font-size:10px;padding:2px 5px;">📘</span>':''}</td>
+      <td data-col="proveedor">${esc(p.proveedor||"")}</td>
+      <td data-col="rubro" style="font-size:12px;">${esc(p.rubro||"")}</td>
+      <td data-col="costo" class="num">$${fmt(p.costo)}</td>
+      <td data-col="precioml" class="num">$${fmt(p.precio)}</td>
+      <td data-col="preciotienda" class="num">$${fmt(p.precioTienda||0)}</td>
+      <td data-col="margenml" class="num ${margenCls}">${margen}</td>
+      <td data-col="margentienda" class="num ${margenTiendaCls}">${margenTienda}</td>
+      <td data-col="stockdep" class="num ${stockDep<=0?'num-neg':''}">${stockDep}</td>
+      <td data-col="stockfull" class="num" style="color:var(--ml-blue);font-weight:700;">${stockFull}</td>
+      <td data-col="stockmin" class="num">${p.stockMin||0}</td>
+      <td data-col="tienda"><span class="badge ${p.stockOn!==0?'badge-green':'badge-red'}">${p.stockOn!==0?'Visible':'Oculto'}</span></td>
+      <td data-col="ml" style="text-align:center;">${p.ml_item_id?`<img src="${ML_LOGO_B64}" alt="Vinculado a ML" title="Vinculado a ML: ${esc(p.ml_item_id)}" style="width:22px;height:22px;object-fit:contain;">`:''}</td>
+      <td data-col="acciones"><div class="btn-group">
         ${esAdmin()?`<button class="btn btn-ghost btn-sm" onclick="editarProducto(${idx})">✏️</button>
         <button class="btn btn-danger btn-sm" onclick="confirmarElimProd(${idx})">🗑️</button>`:""}
       </div></td>
@@ -3115,6 +3147,46 @@ function calcularCostoDesdeComponentes(mostrarToast){
   calcMargenModal();
   if(mostrarToast) toast(faltantes?`Costo recalculado (⚠️ ${faltantes} componente(s) sin encontrar).`:"Costo recalculado desde componentes ✅","ok");
 }
+// ── Columnas opcionales del Catálogo (para achicar la tabla y evitar scroll horizontal) ──
+const COLUMNAS_CATALOGO_OPCIONALES = ["rubro","preciotienda","margenml","margentienda","stockmin","tienda","ml"];
+function _colsCatalogoOcultas(){
+  try{ return JSON.parse(localStorage.getItem("origo_cols_catalogo_ocultas")||"[]"); }catch(e){ return []; }
+}
+function aplicarColumnasCatalogo(){
+  const ocultas = _colsCatalogoOcultas();
+  let css = "";
+  ocultas.forEach(col=>{ css += `#productosBody [data-col="${col}"], thead [data-col="${col}"]{display:none;}\n`; });
+  let styleEl = document.getElementById("estiloColumnasCatalogo");
+  if(!styleEl){ styleEl = document.createElement("style"); styleEl.id="estiloColumnasCatalogo"; document.head.appendChild(styleEl); }
+  styleEl.textContent = css;
+  document.querySelectorAll("[data-col-toggle]").forEach(chk=>{
+    chk.checked = !ocultas.includes(chk.dataset.colToggle);
+  });
+}
+function toggleColumnaCatalogo(col, visible){
+  let ocultas = _colsCatalogoOcultas();
+  if(visible) ocultas = ocultas.filter(c=>c!==col);
+  else if(!ocultas.includes(col)) ocultas.push(col);
+  try{ localStorage.setItem("origo_cols_catalogo_ocultas", JSON.stringify(ocultas)); }catch(e){}
+  aplicarColumnasCatalogo();
+}
+function toggleMenuColumnas(){
+  const menu = document.getElementById("menuColumnasCatalogo");
+  const abrir = menu.style.display==="none";
+  menu.style.display = abrir?"block":"none";
+  if(abrir){
+    setTimeout(()=>{
+      document.addEventListener("click", function cerrar(e){
+        if(!menu.contains(e.target) && !e.target.closest('[onclick="toggleMenuColumnas()"]')){
+          menu.style.display="none";
+          document.removeEventListener("click", cerrar);
+        }
+      });
+    },10);
+  }
+}
+aplicarColumnasCatalogo();
+
 function toggleMaximizarModalProducto(){
   const box=document.getElementById("modalProductoBox");
   const maximizado=box.classList.toggle("modal-maximizado");
