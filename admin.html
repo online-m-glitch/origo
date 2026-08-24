@@ -1193,11 +1193,16 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
 
               <!-- Preview de líneas detectadas -->
               <div id="mlPreviewWrap" style="display:none;">
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
                   <div style="font-size:13px;font-weight:700;color:#0d2259;" id="mlPreviewResumen"></div>
-                  <label style="font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px;">
-                    <input type="checkbox" id="mlSelAll" onchange="toggleSelectAllML(this.checked)" checked> Seleccionar todos
-                  </label>
+                  <div style="display:flex;align-items:center;gap:14px;">
+                    <label style="font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px;color:var(--orange);">
+                      <input type="checkbox" id="mlFiltroSinCatalogo" onchange="renderMLPreview()"> Ver solo sin catálogo
+                    </label>
+                    <label style="font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px;">
+                      <input type="checkbox" id="mlSelAll" onchange="toggleSelectAllML(this.checked)" checked> Seleccionar todos
+                    </label>
+                  </div>
                 </div>
                 <div class="table-wrap" style="max-height:400px;overflow-y:auto;">
                   <table>
@@ -5067,7 +5072,12 @@ function renderMLPreview(){
     `<span style="color:var(--green);">✅ ${enCat} en catálogo</span>`+
     (sinCat?` &nbsp;·&nbsp; <span style="color:var(--orange);">⚠️ ${sinCat} SKU no encontrado</span>`:'');
 
-  document.getElementById('mlPreviewBody').innerHTML=mlLineasPreview.map((l,i)=>`
+  const filtroSinCat = document.getElementById('mlFiltroSinCatalogo')?.checked;
+  const indices = mlLineasPreview.map((l,i)=>i).filter(i=>!filtroSinCat || !mlLineasPreview[i].enCatalogo);
+
+  document.getElementById('mlPreviewBody').innerHTML = indices.map(i=>{
+    const l = mlLineasPreview[i];
+    return `
     <tr style="${l.yaImportada?'background:#f1f5f9;opacity:.7;':!l.enCatalogo?'background:#fff7ed;':l.esCarrito?'background:#f0f9ff;':''}">
       <td style="font-size:12px;">${l.fecha}</td>
       <td>
@@ -5089,7 +5099,12 @@ function renderMLPreview(){
       <td style="text-align:center;">
         <input type="checkbox" id="mlCheck${i}" ${l.sku&&!l.yaImportada?'checked':''} style="width:15px;height:15px;cursor:pointer;" onchange="actualizarResumenML()">
       </td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
+
+  if(filtroSinCat && !indices.length){
+    document.getElementById('mlPreviewBody').innerHTML = `<tr><td colspan="9" style="text-align:center;padding:20px;color:var(--text-soft);">🎉 No queda ningún SKU sin encontrar.</td></tr>`;
+  }
   actualizarResumenML();
 }
 
