@@ -2541,7 +2541,7 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
   <div class="modal modal-sm">
     <h3 id="confirmMsg">¿Confirmar?</h3>
     <div class="modal-actions" style="justify-content:center;">
-      <button class="btn btn-ghost" onclick="cerrarConfirm()">Cancelar</button>
+      <button class="btn btn-ghost" id="confirmCancelBtn" onclick="cerrarConfirm()">Cancelar</button>
       <button class="btn btn-danger" id="confirmBtn">Confirmar</button>
     </div>
   </div>
@@ -3633,12 +3633,12 @@ function autocompletarMovSku(val){
   document.getElementById("mPrecioInfo").textContent=p?`$${fmt(p.precio)}`:"—";
 }
 function actualizarSkuList(){
-  const opts=productos.map(p=>`<option value="${esc(p.sku)}">`).join("");
+  const opts=productos.map(p=>`<option value="${esc(p.sku)}">${esc(p.sku)} — ${esc(p.nombre)}</option>`).join("");
   document.getElementById("skuList").innerHTML=opts;
   const vt=document.getElementById("vtSkuList");
   if(vt) vt.innerHTML=opts;
   const combo=document.getElementById("skuListCombo");
-  if(combo) combo.innerHTML=productos.filter(p=>p.tipo!=="combo").map(p=>`<option value="${esc(p.sku)}">`).join("");
+  if(combo) combo.innerHTML=productos.filter(p=>p.tipo!=="combo").map(p=>`<option value="${esc(p.sku)}">${esc(p.sku)} — ${esc(p.nombre)}</option>`).join("");
 }
 // Combos: al vender un combo (Tienda o manual, NO ML Full — ese stock ya viene directo de la API),
 // se genera un movimiento "Baja" por cada componente para reflejar el consumo real de depósito.
@@ -4316,7 +4316,7 @@ async function sincronizarFeesML(){
 // ================================================================
 function actualizarSkuListCompras(){
   if(!document.getElementById("cSkuList")) return;
-  document.getElementById("cSkuList").innerHTML = productos.map(p=>`<option value="${esc(p.sku)}">`).join("");
+  document.getElementById("cSkuList").innerHTML = productos.map(p=>`<option value="${esc(p.sku)}">${esc(p.sku)} — ${esc(p.nombre)}</option>`).join("");
   // prov list
   const provs = getProveedores();
   if(document.getElementById("cProvList"))
@@ -4702,7 +4702,11 @@ async function mostrarSeccion(id){
 // ================================================================
 // MODAL CONFIRMAR
 // ================================================================
-function cerrarConfirm(){ document.getElementById("modalConfirm").classList.remove("show"); confirmCb=null; }
+function cerrarConfirm(){
+  document.getElementById("modalConfirm").classList.remove("show");
+  confirmCb=null;
+  document.getElementById("confirmCancelBtn").textContent="Cancelar";
+}
 document.getElementById("confirmBtn").onclick=()=>{ if(confirmCb){confirmCb();cerrarConfirm(); document.getElementById("confirmBtn").style.background="";} };
 document.getElementById("modalConfirm").addEventListener("click",e=>{ if(e.target===e.currentTarget) cerrarConfirm(); });
 document.getElementById("modalProducto").addEventListener("click",e=>{ if(e.target===e.currentTarget) cerrarModalProducto(); });
@@ -5221,6 +5225,7 @@ async function registrarVentaTienda(){
       }catch(e){ toast('Error acreditando en caja: '+e.message,'err'); }
     };
     document.getElementById('confirmBtn').textContent='Sí, acreditar';
+    document.getElementById('confirmCancelBtn').textContent='No, acreditar';
     document.getElementById('confirmMsg').innerHTML=`¿Sumar <strong>$${fmt(total)}</strong> a <strong>Caja ${cajaNombre}</strong> por esta venta?`;
     document.getElementById('modalConfirm').classList.add('show');
   }
@@ -5264,6 +5269,7 @@ async function registrarGasto(){
       }catch(e){ toast("Error acreditando en caja: "+e.message,"err"); }
     };
     document.getElementById("confirmBtn").textContent="Sí, descontar";
+    document.getElementById("confirmCancelBtn").textContent="No, descontar";
     document.getElementById("confirmMsg").innerHTML=`¿Descontar <strong>$${fmt(monto)}</strong> de <strong>Caja ${cajaNombre}</strong> por este gasto?`;
     document.getElementById("modalConfirm").classList.add("show");
   } else {
