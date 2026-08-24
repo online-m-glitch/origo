@@ -1513,6 +1513,43 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
           </div>
         </div>
 
+        <div class="card" style="margin-bottom:20px;">
+          <div class="card-header"><h3>🔁 Transferir entre cajas</h3></div>
+          <div style="padding:16px;">
+            <p style="font-size:12px;color:var(--text-soft);margin-bottom:12px;">Mueve plata de una caja a la otra con un solo movimiento — genera automáticamente el egreso en una y el ingreso en la otra.</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+              <div class="form-group" style="margin:0;">
+                <label style="font-size:11px;">Fecha</label>
+                <input type="date" id="tcFecha" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label style="font-size:11px;">De</label>
+                <select id="tcDesde" onchange="sincronizarTransferenciaCajas('desde')" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                  <option value="Efectivo">💵 Efectivo</option>
+                  <option value="MercadoPago">💳 Mercado Pago</option>
+                </select>
+              </div>
+              <div style="align-self:center;padding-bottom:8px;font-size:16px;color:var(--text-soft);">→</div>
+              <div class="form-group" style="margin:0;">
+                <label style="font-size:11px;">A</label>
+                <select id="tcHasta" onchange="sincronizarTransferenciaCajas('hasta')" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+                  <option value="Efectivo">💵 Efectivo</option>
+                  <option value="MercadoPago" selected>💳 Mercado Pago</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin:0;flex:1;min-width:140px;">
+                <label style="font-size:11px;">Concepto (opcional)</label>
+                <input type="text" id="tcConcepto" placeholder="Ej: Retiro para gastos del día" style="width:100%;padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label style="font-size:11px;">Monto ($)</label>
+                <input type="number" id="tcMonto" placeholder="0" style="width:110px;padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
+              </div>
+              <button class="btn btn-primary" onclick="registrarTransferenciaCajas()">🔁 Transferir</button>
+            </div>
+          </div>
+        </div>
+
         <div class="card">
           <div class="card-header">
             <h3>📋 Movimientos de caja</h3>
@@ -4685,7 +4722,11 @@ async function mostrarSeccion(id){
   if(id==="compras"){ renderCompras(); actualizarSkuListCompras(); }
   if(id==="ventas"){ renderVentas(); renderVentasML(); renderVentasTienda(); mostrarUltimaSync("facturacion","ultimaSyncFacturacion"); }
   if(id==="gastos"){ renderGastosSeccion(); }
-  if(id==="caja"){ renderCaja(); }
+  if(id==="caja"){
+    renderCaja();
+    const tcFecha=document.getElementById("tcFecha");
+    if(tcFecha && !tcFecha.value) tcFecha.value=new Date().toISOString().split("T")[0];
+  }
   if(id==="devoluciones"){ renderDevoluciones(); }
   if(id==="listasprecios"){
     if(!document.getElementById('lpFecha').value) document.getElementById('lpFecha').value=new Date().toISOString().split('T')[0];
@@ -4852,10 +4893,14 @@ function esEstadoIgnorar(estado){
   if(e.startsWith('venta cancelada')) return true;
   if(e.startsWith('devoluci')) return true;
   if(e.startsWith('devuelto')) return true;
-  if(e.startsWith('mediac')) return true;
   if(e.startsWith('reclamo')) return true;
   if(e.startsWith('en devoluci')) return true;
-  if(e.startsWith('te dimos el dinero del producto')) return true;
+  // Mediación: si se resolvió a tu favor (el dinero te lo quedaste vos, el vendedor), SÍ es una venta real.
+  // Si sigue abierta o se resolvió devolviéndole la plata al comprador, no cuenta.
+  if(e.startsWith('mediac') || e.includes('mediación')){
+    if(e.includes('te dimos el dinero')) return false; // resuelta a tu favor -> cuenta como venta
+    return true;
+  }
   return false;
 }
 
@@ -5418,6 +5463,25 @@ async function registrarCajaMov(){
 }
 function eliminarCajaMov(idx){
   const m=cajaMovimientos[idx];
+  if(m.origen==='transferencia' && m.referencia){
+    const parIdx=cajaMovimientos.findIndex((x,i)=>i!==idx && x.origen==='transferencia' && x.referencia===m.referencia);
+    if(parIdx>=0){
+      const par=cajaMovimientos[parIdx];
+      confirmCb=async()=>{
+        try{
+          if(m.id) await sbGuardar("deleteCajaMov",m.id);
+          if(par.id) await sbGuardar("deleteCajaMov",par.id);
+        }catch(e){ toast("Error eliminando: "+e.message,"err"); return; }
+        cajaMovimientos=cajaMovimientos.filter(x=>!(x.origen==='transferencia' && x.referencia===m.referencia));
+        renderCaja();
+        toast("Transferencia eliminada (las dos partes).","ok");
+      };
+      document.getElementById("confirmBtn").textContent="Eliminar los dos movimientos";
+      document.getElementById("confirmMsg").innerHTML=`Este movimiento es parte de una <strong>transferencia entre cajas</strong> (${esc(m.caja)} ${m.tipo==='Egreso'?'→':'←'} ${esc(par.caja)}). Para no dejar descuadrada una de las cajas, se eliminan <strong>las dos partes juntas</strong>. ¿Confirmás?`;
+      document.getElementById("modalConfirm").classList.add("show");
+      return;
+    }
+  }
   confirmCb=async()=>{
     if(m.id){ try{ await sbGuardar("deleteCajaMov",m.id); }catch(e){ toast("Error eliminando: "+e.message,"err"); return; } }
     cajaMovimientos.splice(idx,1);
@@ -5427,6 +5491,43 @@ function eliminarCajaMov(idx){
   document.getElementById("confirmBtn").textContent="Eliminar";
   document.getElementById("confirmMsg").textContent="¿Eliminar este movimiento de caja? Esto no revierte ninguna venta, solo borra el registro de caja.";
   document.getElementById("modalConfirm").classList.add("show");
+}
+
+function sincronizarTransferenciaCajas(campoTocado){
+  const desdeEl=document.getElementById("tcDesde"), hastaEl=document.getElementById("tcHasta");
+  if(desdeEl.value===hastaEl.value){
+    // Si quedan iguales, forzamos el otro campo a la opción restante (siempre son solo 2 cajas)
+    const otra = desdeEl.value==="Efectivo" ? "MercadoPago" : "Efectivo";
+    if(campoTocado==="desde") hastaEl.value=otra; else desdeEl.value=otra;
+  }
+}
+async function registrarTransferenciaCajas(){
+  if(checkViewer("Transferir entre cajas")) return;
+  const fecha=document.getElementById("tcFecha").value || new Date().toISOString().split("T")[0];
+  const desde=document.getElementById("tcDesde").value;
+  const hasta=document.getElementById("tcHasta").value;
+  const concepto=document.getElementById("tcConcepto").value.trim();
+  const monto=parseFloat(document.getElementById("tcMonto").value)||0;
+  if(!monto){ toast("Ingresá un monto válido.","err"); return; }
+  if(desde===hasta){ toast("Elegí dos cajas distintas.","err"); return; }
+
+  const nombreCaja={Efectivo:"Efectivo",MercadoPago:"Mercado Pago"};
+  const referencia="transfer:"+Date.now();
+  const conceptoBase=concepto||("Transferencia "+nombreCaja[desde]+" → "+nombreCaja[hasta]);
+
+  const salida={fecha, caja:desde, tipo:"Egreso", monto, concepto:conceptoBase, origen:"transferencia", referencia};
+  const entrada={fecha, caja:hasta, tipo:"Ingreso", monto, concepto:conceptoBase, origen:"transferencia", referencia};
+  try{
+    const s1=await sbGuardar("cajamov",salida);
+    cajaMovimientos.unshift(Object.assign({},salida,s1||{}));
+    const s2=await sbGuardar("cajamov",entrada);
+    cajaMovimientos.unshift(Object.assign({},entrada,s2||{}));
+  }catch(e){ toast("Error registrando la transferencia: "+e.message,"err"); return; }
+
+  document.getElementById("tcConcepto").value="";
+  document.getElementById("tcMonto").value="";
+  toast(`🔁 $${fmt(monto)} transferido de ${nombreCaja[desde]} a ${nombreCaja[hasta]} ✅`,"ok");
+  renderCaja();
 }
 function renderCaja(){
   const saldoEf=saldoCaja("Efectivo");
@@ -5455,7 +5556,7 @@ function renderCaja(){
   if(empty) empty.style.display="none";
   if(tbody) tbody.innerHTML=lista.map(m=>{
     const realIdx=cajaMovimientos.indexOf(m);
-    const origenLabel=m.origen==='venta_tienda'?'🏪 Venta Tienda':(m.origen==='manual'?'Manual':esc(m.origen||''));
+    const origenLabel=m.origen==='venta_tienda'?'🏪 Venta Tienda':(m.origen==='transferencia'?'🔁 Transferencia':(m.origen==='manual'?'Manual':esc(m.origen||'')));
     return `<tr>
       <td>${m.fecha}</td>
       <td><span class="badge ${m.caja==='Efectivo'?'badge-green':'badge-blue'}">${m.caja==='Efectivo'?'💵 Efectivo':'💳 Mercado Pago'}</span></td>
