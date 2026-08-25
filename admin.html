@@ -5011,9 +5011,7 @@ function procesarRowsML(rows){
     const esCarrito=esCarritoRaw==='sí'||esCarritoRaw==='si'||esCarritoRaw==='yes'||
       (!parseFloat(String(ingresoBrutoRaw==null?'':ingresoBrutoRaw).replace(/[^0-9.,-]/g,'')) && precioUnit>0);
     const prod=productos.find(p=>p.sku.toUpperCase()===sku);
-    const yaImportada=ventas.some(v=>
-      v.nroVenta===nroVenta && v.sku.toUpperCase()===sku && v.canal==='ML'
-    );
+    const yaImportada=ventaMLYaExiste(nroVenta, sku, cantidad, precioUnit);
 
     mlLineasPreview.push({
       fecha, nroVenta, estado, sku, titulo,
@@ -5140,18 +5138,23 @@ async function confirmarImportML(){
   const seleccionadas=mlLineasPreview.filter((_,i)=>document.getElementById('mlCheck'+i)?.checked);
   if(!seleccionadas.length){ toast('Seleccioná al menos una línea.','err'); return; }
 
-  // Set de "nroVenta|sku|cantidad|precio" ya existentes, para chequear duplicados en O(1) en vez de recorrer todo `ventas` por cada línea.
-  // Importante: incluye cantidad y precio (no solo nroVenta+sku), porque un carrito puede traer más de una línea
-  // con el mismo SKU (envíos parciales, el mismo producto agregado dos veces) y esas NO son duplicados reales.
-  const existentes=new Set(ventas.filter(v=>v.canal==='ML').map(v=>v.nroVenta+'|'+v.sku.toUpperCase()+'|'+v.cantidad+'|'+v.precio));
+  // Duplicados: usamos el mismo criterio inteligente de ventaMLYaExiste (ver esa función) — no ignora el SKU
+  // a ciegas, solo cuando el Nro. de Venta tiene una única línea cargada (sin ambigüedad posible).
+  // "extras" acumula lo que ya decidimos incluir DENTRO de esta misma importación, para detectar
+  // carritos que traen varias líneas nuevas juntas en el mismo archivo.
+  // Cuántas líneas tiene cada Nro. de Venta DENTRO de este mismo archivo (lo sabemos de antemano,
+  // no hace falta ir descubriéndolo línea por línea — evita confundir un carrito nuevo con una venta simple).
+  const lineasPorOrdenEnLote={};
+  seleccionadas.forEach(l=>{ if(l.sku) lineasPorOrdenEnLote[l.nroVenta]=(lineasPorOrdenEnLote[l.nroVenta]||0)+1; });
+
+  const extras=[];
 
   const vDatas=[], mDatas=[];
   let warn=0, dupl=0;
   for(const l of seleccionadas){
     if(!l.sku){ warn++; continue; }
-    const key=l.nroVenta+'|'+l.sku.toUpperCase()+'|'+l.cantidad+'|'+l.precioUnit;
-    if(existentes.has(key)){ dupl++; continue; }
-    existentes.add(key); // por si el mismo archivo trae la línea repetida
+    if(ventaMLYaExiste(l.nroVenta, l.sku, l.cantidad, l.precioUnit, extras, lineasPorOrdenEnLote[l.nroVenta])){ dupl++; continue; }
+    extras.push({canal:'ML', nroVenta:l.nroVenta, sku:l.sku, cantidad:l.cantidad, precio:l.precioUnit});
     const p=productos.find(x=>x.sku.toUpperCase()===l.sku.toUpperCase());
     vDatas.push({
       fecha:l.fecha, canal:'ML', sku:l.sku,
@@ -6381,14 +6384,14 @@ async function revertirComponentesCombo(movId){
   if(paraBorrar.length) movimientos=movimientos.filter(x=>!(x.obs&&x.obs.indexOf(tag)===0));
   return paraBorrar.length;
 }
-// ── Detectar y limpiar ventas ML duplicadas (mismo Nro. de Venta + SKU + cantidad + precio) ──
-// Puede pasar si se reimportó el mismo período más de una vez mientras la lista de ventas en memoria
-// estaba incompleta (antes de arreglar el límite de filas al cargar datos).
+// ── Detectar y limpiar ventas ML duplicadas (mismo Nro. de Venta + cantidad + precio) ──
+// No se compara por SKU: el mismo Nro. de Venta puede tener un SKU corregido distinto entre
+// una carga y otra (por correcciones manuales), y sigue siendo la misma venta real.
 function detectarVentasDuplicadas(){
   const grupos = {};
   for(const v of ventas){
     if(v.canal!=='ML' || !v.nroVenta) continue;
-    const key = v.nroVenta+'|'+(v.sku||'').toUpperCase()+'|'+v.cantidad+'|'+v.precio;
+    const key = v.nroVenta+'|'+v.cantidad+'|'+v.precio;
     (grupos[key]=grupos[key]||[]).push(v);
   }
   const duplicados = Object.values(grupos).filter(g=>g.length>1);
@@ -6398,14 +6401,16 @@ async function revisarDuplicadosML(){
   const grupos = detectarVentasDuplicadas();
   if(!grupos.length){ toast("No se encontraron ventas ML duplicadas ✅","ok"); return; }
   const totalExtra = grupos.reduce((a,g)=>a+(g.length-1),0);
-  const detalle = grupos.slice(0,15).map(g=>
-    `• Nro. ${g[0].nroVenta} — ${esc(g[0].sku)} — repetida ${g.length} veces`
-  ).join('<br>');
+  const detalle = grupos.slice(0,15).map(g=>{
+    const skusDistintos = [...new Set(g.map(v=>v.sku))];
+    const skuTexto = skusDistintos.length>1 ? skusDistintos.join(' / ')+' ⚠️ SKU distinto entre copias' : skusDistintos[0];
+    return `• Nro. ${g[0].nroVenta} — ${esc(skuTexto)} — repetida ${g.length} veces`;
+  }).join('<br>');
   document.getElementById('confirmBtn').textContent = 'Eliminar duplicados';
   document.getElementById('confirmMsg').innerHTML =
     `Se encontraron <strong>${grupos.length} venta(s)</strong> duplicadas (${totalExtra} fila(s) de más en total).<br><br>`+
     `${detalle}${grupos.length>15?'<br>… y '+(grupos.length-15)+' más':''}<br><br>`+
-    `Se va a conservar 1 copia de cada una (la más completa) y eliminar el resto — incluyendo los movimientos de stock asociados, para corregir también el stock Full ML. Esta acción no se puede deshacer.`;
+    `Se va a conservar 1 copia de cada una (con prioridad: SKU que exista en tu Catálogo → facturación sincronizada → la más vieja) y eliminar el resto — incluyendo los movimientos de stock asociados, para corregir también el stock Full ML. Esta acción no se puede deshacer.`;
   confirmCb = async()=>{ await limpiarVentasDuplicadas(grupos); };
   document.getElementById('modalConfirm').classList.add('show');
 }
@@ -6413,8 +6418,13 @@ async function limpiarVentasDuplicadas(grupos){
   mostrarCargando(true);
   let ventasEliminadas=0, movsEliminados=0, errores=0;
   for(const grupo of grupos){
-    // Nos quedamos con la copia más "completa": la que tiene facturación sincronizada, o si no, la más vieja (id menor)
+    // Nos quedamos con la copia más "completa": primero la que tiene un SKU que existe en el Catálogo
+    // (por si entre copias el SKU quedó corregido distinto), después la que tiene facturación sincronizada,
+    // y por último la más vieja (id menor).
     const ordenado = grupo.slice().sort((a,b)=>{
+      const aValido = !!productos.find(p=>p.sku.toUpperCase()===(a.sku||'').toUpperCase());
+      const bValido = !!productos.find(p=>p.sku.toUpperCase()===(b.sku||'').toUpperCase());
+      if(bValido!==aValido) return (bValido?1:0)-(aValido?1:0);
       if(!!b.billing_synced!==!!a.billing_synced) return (b.billing_synced?1:0)-(a.billing_synced?1:0);
       return (a.id||0)-(b.id||0);
     });
@@ -7541,6 +7551,27 @@ function cerrarModalFullML(){
 
 // Parsea el texto del PDF de instrucciones de preparación de Full ML y devuelve [{sku, unidades}]
 // Reutilizada tanto por el importador de "Envío a Full" (Movimientos) como por el de "Pedidos a Proveedores"
+// Detecta si una venta ML ya está cargada, con un criterio que no depende ciegamente del SKU:
+// - Si ese Nro. de Venta ya tiene UNA sola línea cargada, alcanza con nroVenta+cantidad+precio
+//   (el SKU puede haber venido corregido distinto entre una importación y otra, sigue siendo la misma venta).
+// - Si ese Nro. de Venta ya tiene VARIAS líneas cargadas (carrito real), exigimos que el SKU también
+//   coincida, para no confundir dos productos distintos del mismo carrito.
+function ventaMLYaExiste(nroVenta, sku, cantidad, precio, extras, totalEnEsteLote){
+  const dbExistentes = ventas.filter(v=>v.canal==='ML' && v.nroVenta===nroVenta);
+  const extrasDelOrden = (extras||[]).filter(v=>v.nroVenta===nroVenta);
+  // "¿Esta orden es de una sola línea o es un carrito?" — es una propiedad de la orden en sí, no de
+  // cuántas veces la importamos. Tomamos el MÁXIMO entre lo que ya está guardado y lo que trae este
+  // archivo (no la suma, para no contar una misma línea reimportada como si fueran dos).
+  const totalEsperado = Math.max(dbExistentes.length, totalEnEsteLote!=null ? totalEnEsteLote : extrasDelOrden.length);
+  const candidatos = dbExistentes.concat(extrasDelOrden);
+  if(totalEsperado<=1){
+    // Sin ambigüedad posible (una sola línea en total): ignoramos el SKU, puede haber venido corregido distinto.
+    return candidatos.some(v=>v.cantidad===cantidad && v.precio===precio);
+  }
+  // Carrito real (más de una línea): exigimos también el SKU, para no confundir productos distintos.
+  return candidatos.some(v=>v.sku.toUpperCase()===(sku||'').toUpperCase() && v.cantidad===cantidad && v.precio===precio);
+}
+
 function parsearLineasFullMLTexto(texto){
   // El PDF de ML Full linearizado por PDF.js tiene el formato:
   // "SKU: PR5 PLUS Protector De... Etiquetado obligatorio 5 Código ML:..."
@@ -8080,7 +8111,7 @@ async function sincronizarVentasML(){
         const totalNeto = orden.payments?.[0]?.net_received_amount||(precioUnit*cantidad*0.67);
 
         // Verificar duplicado (incluye cantidad y precio: un carrito puede traer más de una línea con el mismo SKU)
-        const yaExiste = ventas.some(v=>v.nroVenta===nroVenta && v.sku===sku && v.canal==="ML" && v.cantidad===cantidad && v.precio===precioUnit);
+        const yaExiste = ventaMLYaExiste(nroVenta, sku, cantidad, precioUnit);
         if(yaExiste){ dupli++; continue; }
 
         const fechaStr = (orden.date_created||"").split("T")[0];
