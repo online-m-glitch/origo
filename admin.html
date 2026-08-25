@@ -4512,13 +4512,14 @@ async function guardarCompra(){
       return;
     }
     try{
-      // 1. Borrar los movimientos (Ingreso) viejos de esta compra
+      // 1. Borrar los movimientos (Ingreso) viejos de esta compra — por compra_id (confiable),
+      //    con un respaldo por texto para compras viejas que se hayan creado antes de este campo.
       const obsViejo = "Compra "+(c.factura||"s/n")+" · "+c.proveedor;
-      const movsViejos = movimientos.filter(m=>m.tipo==="Ingreso" && m.obs===obsViejo);
+      const movsViejos = movimientos.filter(m=>m.tipo==="Ingreso" && (m.compra_id===c.id || (!m.compra_id && m.obs===obsViejo)));
       for(const m of movsViejos){
         if(m.id) await sbGuardar("deleteMovimiento", m.id);
       }
-      movimientos = movimientos.filter(m=>!(m.tipo==="Ingreso" && m.obs===obsViejo));
+      movimientos = movimientos.filter(m=>!(m.tipo==="Ingreso" && (m.compra_id===c.id || (!m.compra_id && m.obs===obsViejo))));
 
       // 2. Borrar la entrada vieja de Cuenta Corriente
       const ccVieja = cuentaCorriente.find(m=>m.compraId===c.id);
@@ -4530,11 +4531,11 @@ async function guardarCompra(){
       await sbGuardar("updateCompra", { id:c.id, campos });
       Object.assign(c, campos);
 
-      // 4. Recrear movimientos (Ingreso) con los datos nuevos
+      // 4. Recrear movimientos (Ingreso) con los datos nuevos, ligados por compra_id
       for(const l of lineasCopia){
         const p=productos.find(x=>x.sku.toUpperCase()===l.sku);
         const mov={fecha, tipo:"Ingreso", sku:l.sku, producto:l.producto, cantidad:l.cantidad,
-          costo:l.costo, precio:p?p.precio:0, obs:"Compra "+(factura||"s/n")+" · "+proveedor, origen:""};
+          costo:l.costo, precio:p?p.precio:0, obs:"Compra "+(factura||"s/n")+" · "+proveedor, origen:"", compra_id:c.id};
         const saved=await sbGuardar("movimiento",mov);
         movimientos.unshift(Object.assign({},mov,saved||{}));
       }
@@ -4575,7 +4576,7 @@ async function guardarCompra(){
     for(const l of lineasCopia){
       const p=productos.find(x=>x.sku.toUpperCase()===l.sku);
       const mov={fecha, tipo:"Ingreso", sku:l.sku, producto:l.producto, cantidad:l.cantidad,
-        costo:l.costo, precio:p?p.precio:0, obs:"Compra "+(factura||"s/n")+" · "+proveedor, origen:""};
+        costo:l.costo, precio:p?p.precio:0, obs:"Compra "+(factura||"s/n")+" · "+proveedor, origen:"", compra_id:compra.id};
       const saved=await sbGuardar("movimiento",mov);
       movimientos.unshift(Object.assign({},mov,saved||{}));
     }
@@ -4743,10 +4744,11 @@ function eliminarCompra(idx){
   const c = compras[idx];
   confirmCb=async()=>{
     const obsStr="Compra "+(c.factura||"s/n")+" · "+c.proveedor;
-    // Eliminar movimientos en Supabase
-    const movsAElim=movimientos.filter(m=>m.obs===obsStr && m.fecha===c.fecha);
+    // Eliminar movimientos en Supabase — por compra_id (confiable), con respaldo por texto para compras
+    // viejas creadas antes de que existiera este campo.
+    const movsAElim=movimientos.filter(m=>m.compra_id===c.id || (!m.compra_id && m.obs===obsStr && m.fecha===c.fecha));
     for(const m of movsAElim){ if(m.id) await sbGuardar("deleteMovimiento",m.id); }
-    movimientos=movimientos.filter(m=>!(m.obs===obsStr && m.fecha===c.fecha));
+    movimientos=movimientos.filter(m=>!(m.compra_id===c.id || (!m.compra_id && m.obs===obsStr && m.fecha===c.fecha)));
     // Eliminar CC en Supabase
     const ccAElim=cuentaCorriente.filter(m=>m.compraId===c.id);
     for(const cc of ccAElim){ if(cc.id) await sbGuardar("deleteCc",cc.id); }
@@ -8957,7 +8959,7 @@ async function marcarRecibidoPP(id){
       paso = "generando los movimientos de stock";
       for(const l of lineasCompraGen){
         const prod = productos.find(x=>x.sku.toUpperCase()===l.sku.toUpperCase());
-        const mov = {fecha, tipo:"Ingreso", sku:l.sku, producto:l.nombre||l.sku, cantidad:l.cantidad, costo:l.costo, precio:prod?prod.precio:0, obs:"Recepción pedido #"+id+" · "+p.proveedor, origen:""};
+        const mov = {fecha, tipo:"Ingreso", sku:l.sku, producto:l.nombre||l.sku, cantidad:l.cantidad, costo:l.costo, precio:prod?prod.precio:0, obs:"Recepción pedido #"+id+" · "+p.proveedor, origen:"", compra_id:compra.id};
         const saved = await sbGuardar("movimiento",mov);
         movimientos.unshift(Object.assign({},mov,saved||{}));
       }
@@ -8997,7 +8999,8 @@ async function marcarRecibidoPP(id){
   document.getElementById("confirmMsg").innerHTML =
     `<strong>¿Confirmar recepción del pedido de ${esc(p.proveedor)}?</strong><br><br>`+
     `<span style="font-size:13px;color:var(--text-soft);">`+(p.lineas||[]).map(l=>esc(l.sku)+" x"+l.cantidad).join(" · ")+`</span><br><br>`+
-    `<span style="font-size:12px;">Se generará automáticamente:<br>✅ Compra en el historial<br>✅ Movimientos de ingreso de stock<br>✅ Deuda en Cuenta Corriente</span>`;
+    `<span style="font-size:12px;">Se generará automáticamente:<br>✅ Compra en el historial<br>✅ Movimientos de ingreso de stock<br>✅ Deuda en Cuenta Corriente</span><br><br>`+
+    `<span style="font-size:12px;color:#9a3412;background:#fff7ed;padding:6px 10px;border-radius:6px;display:inline-block;">⚠️ No hace falta que cargues la compra de nuevo a mano en "Compras" — ya queda registrada sola con este paso.</span>`;
   document.getElementById("modalConfirm").classList.add("show");
 }
 
