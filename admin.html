@@ -899,7 +899,9 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
                 <label>Método 1</label>
                 <select id="pagoMetodo1" onchange="calcularPagoTotal()">
                   <option value="Efectivo">💵 Efectivo</option>
-                  <option value="Transferencia">🏦 Transferencia</option>
+                  <option value="MercadoPago">💳 Mercado Pago</option>
+                  <option value="TransferenciaMP">🏦 Transferencia por Mercado Pago</option>
+                  <option value="Transferencia">🏦 Transferencia (otro banco)</option>
                   <option value="Cheque">📄 Cheque</option>
                 </select>
               </div>
@@ -919,8 +921,10 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
               <div class="form-group">
                 <label>Método 2</label>
                 <select id="pagoMetodo2" onchange="calcularPagoTotal()">
-                  <option value="Transferencia">🏦 Transferencia</option>
+                  <option value="Transferencia">🏦 Transferencia (otro banco)</option>
+                  <option value="TransferenciaMP">🏦 Transferencia por Mercado Pago</option>
                   <option value="Efectivo">💵 Efectivo</option>
+                  <option value="MercadoPago">💳 Mercado Pago</option>
                   <option value="Cheque">📄 Cheque</option>
                 </select>
               </div>
@@ -952,9 +956,19 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
                 </div>
                 <div class="form-group">
                   <label>Tipo</label>
-                  <select id="ccTipo">
+                  <select id="ccTipo" onchange="document.getElementById('ccFormaPagoWrap').style.display=this.value==='Pago'?'block':'none';">
                     <option value="Compra">🛍️ Compra (deuda)</option>
                     <option value="Pago">💳 Pago</option>
+                  </select>
+                </div>
+                <div class="form-group" id="ccFormaPagoWrap" style="display:none;">
+                  <label>Forma de pago</label>
+                  <select id="ccFormaPago">
+                    <option value="Efectivo">💵 Efectivo</option>
+                    <option value="MercadoPago">💳 Mercado Pago</option>
+                    <option value="TransferenciaMP">🏦 Transferencia por Mercado Pago</option>
+                    <option value="Transferencia">🏦 Transferencia (otro banco)</option>
+                    <option value="Cheque">📄 Cheque</option>
                   </select>
                 </div>
                 <div class="form-group">
@@ -1030,8 +1044,11 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
                 <label>Forma de pago</label>
                 <select id="cFormaPago">
                   <option value="Efectivo">💵 Efectivo</option>
-                  <option value="Transferencia">🏦 Transferencia</option>
+                  <option value="MercadoPago">💳 Mercado Pago</option>
+                  <option value="TransferenciaMP">🏦 Transferencia por Mercado Pago</option>
+                  <option value="Transferencia">🏦 Transferencia (otro banco)</option>
                   <option value="Cheque">📄 Cheque</option>
+                  <option value="A pagar">⏳ A pagar / cuenta corriente</option>
                 </select>
               </div>
             </div>
@@ -1460,7 +1477,8 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
               <select id="gMetodoPago" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
                 <option value="Efectivo">💵 Efectivo</option>
                 <option value="MercadoPago">💳 Mercado Pago</option>
-                <option value="Transferencia">🏦 Transferencia</option>
+                <option value="TransferenciaMP">🏦 Transferencia por Mercado Pago</option>
+                <option value="Transferencia">🏦 Transferencia (otro banco)</option>
                 <option value="Pendiente">⏳ Todavía no lo pagué</option>
               </select>
             </div>
@@ -1737,7 +1755,8 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
           <select id="pgMetodoPago">
             <option value="Efectivo">💵 Efectivo</option>
             <option value="MercadoPago">💳 Mercado Pago</option>
-            <option value="Transferencia">🏦 Transferencia</option>
+            <option value="TransferenciaMP">🏦 Transferencia por Mercado Pago</option>
+            <option value="Transferencia">🏦 Transferencia (otro banco)</option>
           </select>
         </div>
         <div class="modal-actions">
@@ -3814,14 +3833,34 @@ async function registrarCC(){
   const factura=document.getElementById("ccFactura").value.trim();
   const desc=document.getElementById("ccDesc").value.trim();
   const importe=parseFloat(document.getElementById("ccImporte").value)||0;
+  const formaPago=tipo==="Pago"?document.getElementById("ccFormaPago").value:"";
   if(!fecha||!prov||!importe){ toast("Completá fecha, proveedor e importe.","err"); return; }
-  const newCC={fecha, tipo, proveedor:prov, factura, descripcion:desc, importe};
-  try{ const saved=await sbGuardar("cc",newCC); cuentaCorriente.unshift(Object.assign({},newCC,saved||{})); }
+  const newCC={fecha, tipo, proveedor:prov, factura, descripcion:desc, importe, formaPago};
+  let savedCC;
+  try{ savedCC=await sbGuardar("cc",newCC); cuentaCorriente.unshift(Object.assign({},newCC,savedCC||{})); }
   catch(e){ return; }
   actualizarProvLists();
   document.getElementById("ccProveedor").value=""; document.getElementById("ccFactura").value=""; document.getElementById("ccDesc").value=""; document.getElementById("ccImporte").value="";
   renderCC(); renderPanel();
   toast("Registrado ✅","ok");
+
+  if(tipo==="Pago"){
+    const cajaNombre=cajaDeMetodoPago(formaPago);
+    if(cajaNombre){
+      confirmCb=async()=>{
+        const movCaja={fecha, caja:cajaNombre, tipo:"Egreso", monto:importe, concepto:"Pago a "+prov+(factura?" — Fact. "+factura:""), origen:"pago_proveedor", referencia:savedCC&&savedCC.id?String(savedCC.id):""};
+        try{
+          const saved=await sbGuardar("cajamov",movCaja);
+          cajaMovimientos.unshift(Object.assign({},movCaja,saved||{}));
+          toast("$"+fmt(importe)+" descontado de Caja "+cajaNombre+" ✅","ok");
+        }catch(e){ toast("Error descontando de Caja: "+e.message,"err"); }
+      };
+      document.getElementById("confirmBtn").textContent="Sí, descontar";
+      document.getElementById("confirmCancelBtn").textContent="No, descontar";
+      document.getElementById("confirmMsg").innerHTML=`¿Descontar <strong>$${fmt(importe)}</strong> de <strong>Caja ${cajaNombre}</strong> por este pago?`;
+      document.getElementById("modalConfirm").classList.add("show");
+    }
+  }
 }
 function renderCC(){
   const q=(document.getElementById("ccBuscar").value||"").toLowerCase();
@@ -4560,6 +4599,23 @@ async function guardarCompra(){
     actualizarProvLists();
     renderPanel(); renderStock(); renderAlertas(); renderMovimientos(); renderCC(); renderCompras();
     toast("Compra registrada ✅ · "+lineasCopia.length+" línea"+(lineasCopia.length!==1?"s":"")+" · $"+fmt(total)+" → CC y Movimientos actualizados","ok",4500);
+
+    // 7. Si se pagó con Efectivo/MercadoPago/Transferencia MP, ofrecer descontarlo de la Caja correspondiente
+    const cajaNombreCompra = cajaDeMetodoPago(formaPago);
+    if(cajaNombreCompra){
+      confirmCb=async()=>{
+        const movCaja={fecha, caja:cajaNombreCompra, tipo:"Egreso", monto:total, concepto:"Compra a "+proveedor+(factura?" — Fact. "+factura:""), origen:"compra", referencia:String(compra.id)};
+        try{
+          const savedCaja=await sbGuardar("cajamov",movCaja);
+          cajaMovimientos.unshift(Object.assign({},movCaja,savedCaja||{}));
+          toast("$"+fmt(total)+" descontado de Caja "+cajaNombreCompra+" ✅","ok");
+        }catch(e){ toast("Error descontando de Caja: "+e.message,"err"); }
+      };
+      document.getElementById("confirmBtn").textContent="Sí, descontar";
+      document.getElementById("confirmCancelBtn").textContent="No, descontar";
+      document.getElementById("confirmMsg").innerHTML=`¿Descontar <strong>$${fmt(total)}</strong> de <strong>Caja ${cajaNombreCompra}</strong> por esta compra?`;
+      document.getElementById("modalConfirm").classList.add("show");
+    }
 
   }catch(e){
     toast("Error guardando compra: "+e.message,"err");
@@ -5337,8 +5393,8 @@ async function registrarGasto(){
     toast("Gasto agregado como pendiente ⏳ · marcalo como pagado cuando lo abones.","ok",4500);
     return;
   }
-  if(metodoPago==="Efectivo" || metodoPago==="MercadoPago"){
-    const cajaNombre=metodoPago==="Efectivo"?"Efectivo":"Mercado Pago";
+  if(metodoPago!=="Pendiente" && cajaDeMetodoPago(metodoPago)){
+    const cajaNombre=cajaDeMetodoPago(metodoPago);
     confirmCb=async()=>{
       const ccData={fecha, caja:cajaNombre, tipo:"Egreso", monto, concepto:categoria+(descripcion?" — "+descripcion:""), origen:"gasto", referencia:saved&&saved.id?String(saved.id):""};
       try{
@@ -5377,8 +5433,8 @@ async function confirmarPagoGasto(){
   document.getElementById("modalPagarGasto").classList.remove("show");
   gIdxPagando=null;
 
-  if(metodoPago==="Efectivo" || metodoPago==="MercadoPago"){
-    const cajaNombre=metodoPago==="Efectivo"?"Efectivo":"Mercado Pago";
+  const cajaNombre = cajaDeMetodoPago(metodoPago);
+  if(cajaNombre){
     const ccData={fecha, caja:cajaNombre, tipo:"Egreso", monto:g.monto, concepto:g.categoria+(g.descripcion?" — "+g.descripcion:""), origen:"gasto", referencia:g.id?String(g.id):""};
     try{
       const savedCaja=await sbGuardar("cajamov",ccData);
@@ -5386,7 +5442,7 @@ async function confirmarPagoGasto(){
       toast("Gasto marcado como pagado ✅ · $"+fmt(g.monto)+" descontado de Caja "+cajaNombre,"ok",4500);
     }catch(e){ toast("Gasto marcado como pagado, pero hubo un error en Caja: "+e.message,"err"); }
   } else {
-    toast("Gasto marcado como pagado ✅ (Transferencia — no se registró en Caja)","ok",4500);
+    toast("Gasto marcado como pagado ✅ (no se registró en ninguna Caja)","ok",4500);
   }
   renderGastosSeccion();
 }
@@ -5452,12 +5508,13 @@ function renderGastosSeccion(){
   const empty=document.getElementById("gastosEmpty");
   if(!lista.length){ if(tbody) tbody.innerHTML=""; if(empty) empty.style.display="block"; return; }
   if(empty) empty.style.display="none";
-  const metodoIcono={Efectivo:'💵',MercadoPago:'💳',Transferencia:'🏦'};
+  const metodoIcono={Efectivo:'💵',MercadoPago:'💳',TransferenciaMP:'🏦',Transferencia:'🏦'};
+  const metodoLabel={TransferenciaMP:'Transferencia MP'};
   if(tbody) tbody.innerHTML=lista.map(g=>{
     const realIdx=gastos.indexOf(g);
     const pagado=g.pagado!==false;
     const colPago = pagado
-      ? `<span class="badge badge-green">${metodoIcono[g.metodo_pago]||''} ${esc(g.metodo_pago||'Pagado')}</span>`
+      ? `<span class="badge badge-green">${metodoIcono[g.metodo_pago]||''} ${esc(metodoLabel[g.metodo_pago]||g.metodo_pago||'Pagado')}</span>`
       : `<span class="badge badge-red">⏳ Pendiente</span>`;
     return `<tr>
       <td>${g.fecha}</td>
@@ -5474,6 +5531,14 @@ function renderGastosSeccion(){
   }).join("");
 }
 // ── Caja (Efectivo / Mercado Pago) ──
+// Determina si un método de pago mueve alguna de las Cajas (Efectivo/Mercado Pago), y cuál.
+// "TransferenciaMP" cuenta como Mercado Pago (sale de esa cuenta) — "Transferencia" (otro banco) y
+// "Cheque" no tocan ninguna Caja porque no están cargadas acá.
+function cajaDeMetodoPago(metodo){
+  if(metodo==="Efectivo") return "Efectivo";
+  if(metodo==="MercadoPago" || metodo==="TransferenciaMP") return "Mercado Pago";
+  return null;
+}
 function saldoCaja(caja){
   return cajaMovimientos.filter(m=>m.caja===caja).reduce((a,m)=>a+(m.tipo==='Ingreso'?(Number(m.monto)||0):-(Number(m.monto)||0)),0);
 }
@@ -6086,11 +6151,11 @@ function abrirEdicionPublicacionML(sku){
   if(!p || !p.ml_item_id){ toast("Este producto no tiene una Publicación ML vinculada.","err"); return; }
   // No existe una forma confiable de armar de antemano el link directo a la pantalla de edición
   // (Mercado Libre genera un token de sesión dinámico al entrar desde su propia lista de publicaciones).
-  // En cambio, te llevamos a "Mis publicaciones" ya buscado por el ID de la publicación — desde ahí
-  // entrás con un clic y usás "Modificar" como siempre.
-  const url = "https://vendedores.mercadolibre.com.ar/publicaciones?search="+encodeURIComponent(p.ml_item_id);
+  // En cambio, te llevamos a "Mis publicaciones" ya buscado por SKU (confirmado que el buscador indexa
+  // por SKU, no por el número de MLA) — desde ahí entrás con un clic y usás "Modificar" como siempre.
+  const url = "https://vendedores.mercadolibre.com.ar/publicaciones?page=1&sort=DEFAULT&search="+encodeURIComponent(p.sku);
   window.open(url, "_blank");
-  toast("Te llevamos a tus publicaciones, ya buscado por "+p.ml_item_id+" — entrá al resultado y apretá \"Modificar\".","ok",6000);
+  toast("Te llevamos a tus publicaciones, ya buscado por SKU "+p.sku+" — entrá al resultado y apretá \"Modificar\".","ok",6000);
 }
 
 // ── Automatización de precios (precio dinámico) — ver estado y desactivar ──
@@ -7331,6 +7396,34 @@ async function registrarPagoFactura(){
 
     renderCC();
     toast(`Pago registrado: $${fmt(totalPago)} · ${formaPago} ✅`,"ok",4000);
+
+    // Si alguno de los métodos usados es Efectivo/Mercado Pago/Transferencia MP, ofrecer descontarlo de esa Caja
+    const cajaMet1 = cajaDeMetodoPago(met1);
+    const cajaMet2 = (usaM2 && m2>0) ? cajaDeMetodoPago(met2) : null;
+    if(cajaMet1 || cajaMet2){
+      confirmCb = async()=>{
+        try{
+          if(cajaMet1 && m1>0){
+            const mov1={fecha, caja:cajaMet1, tipo:"Egreso", monto:m1, concepto:"Pago factura "+factKey+" a "+prov, origen:"pago_proveedor", referencia:saved&&saved.id?String(saved.id):""};
+            const s1=await sbGuardar("cajamov",mov1);
+            cajaMovimientos.unshift(Object.assign({},mov1,s1||{}));
+          }
+          if(cajaMet2 && m2>0){
+            const mov2={fecha, caja:cajaMet2, tipo:"Egreso", monto:m2, concepto:"Pago factura "+factKey+" a "+prov, origen:"pago_proveedor", referencia:saved&&saved.id?String(saved.id):""};
+            const s2=await sbGuardar("cajamov",mov2);
+            cajaMovimientos.unshift(Object.assign({},mov2,s2||{}));
+          }
+          toast("Descontado de Caja correctamente ✅","ok");
+        }catch(e){ toast("Error descontando de Caja: "+e.message,"err"); }
+      };
+      const partes=[];
+      if(cajaMet1 && m1>0) partes.push(`$${fmt(m1)} de Caja ${cajaMet1}`);
+      if(cajaMet2 && m2>0) partes.push(`$${fmt(m2)} de Caja ${cajaMet2}`);
+      document.getElementById("confirmBtn").textContent="Sí, descontar";
+      document.getElementById("confirmCancelBtn").textContent="No, descontar";
+      document.getElementById("confirmMsg").innerHTML=`¿Descontar ${partes.join(' y ')} por este pago?`;
+      document.getElementById("modalConfirm").classList.add("show");
+    }
   }catch(e){ toast("Error: "+e.message,"err"); }
   mostrarCargando(false);
 }
@@ -8845,6 +8938,7 @@ async function marcarRecibidoPP(id){
 
   confirmCb = async()=>{
     mostrarCargando(true);
+    let paso = "preparando los datos";
     try{
       // Crear compra automáticamente
       const fecha = new Date().toISOString().split("T")[0];
@@ -8855,10 +8949,12 @@ async function marcarRecibidoPP(id){
       const total = lineasCompraGen.reduce((a,l)=>a+l.cantidad*l.costo,0);
       const compra = {id:Date.now(), fecha, proveedor:p.proveedor, factura:"Pedido #"+id, obs:"Generado desde pedido a proveedor", formaPago:"A pagar", total, lineas:lineasCompraGen};
 
+      paso = "guardando la Compra";
       await sbGuardar("compra", compra);
       compras.unshift(compra);
 
       // Generar movimientos de ingreso
+      paso = "generando los movimientos de stock";
       for(const l of lineasCompraGen){
         const prod = productos.find(x=>x.sku.toUpperCase()===l.sku.toUpperCase());
         const mov = {fecha, tipo:"Ingreso", sku:l.sku, producto:l.nombre||l.sku, cantidad:l.cantidad, costo:l.costo, precio:prod?prod.precio:0, obs:"Recepción pedido #"+id+" · "+p.proveedor, origen:""};
@@ -8867,6 +8963,7 @@ async function marcarRecibidoPP(id){
       }
 
       // CC
+      paso = "registrando la deuda en Cuenta Corriente";
       const ccData = {fecha, tipo:"Compra", proveedor:p.proveedor, factura:"Pedido #"+id,
         descripcion:lineasCompraGen.length+" producto"+(lineasCompraGen.length!==1?"s":"")+" recibidos",
         importe:total, formaPago:"A pagar", compraId:compra.id};
@@ -8874,16 +8971,24 @@ async function marcarRecibidoPP(id){
       cuentaCorriente.unshift(Object.assign({},ccData,savedCC||{}));
 
       // Marcar pedido como recibido
-      await fetch("https://piqkwewxbjumyqwtmnxn.supabase.co/rest/v1/pedidos_prov?id=eq."+id, {
+      paso = "marcando el pedido como recibido";
+      const rEstado = await fetch("https://piqkwewxbjumyqwtmnxn.supabase.co/rest/v1/pedidos_prov?id=eq."+id, {
         method:"PATCH",
         headers:{"apikey":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I","Authorization":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBpcWt3ZXd4Ymp1bXlxd3RtbnhuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NTcxODAsImV4cCI6MjA5NzEzMzE4MH0.bye19z4vBriLwqvswMfhF3P5BJAVa2_Cxzn08Tg091I","Content-Type":"application/json","Prefer":"return=minimal"},
         body:JSON.stringify({estado:"recibido"})
       });
+      if(!rEstado.ok){
+        const errTxt = await rEstado.text().catch(()=>"");
+        throw new Error("No se pudo actualizar el estado del pedido en la base ("+rEstado.status+"): "+errTxt);
+      }
       p.estado = "recibido";
 
       renderPedidosProv(); renderCompras(); renderCC(); renderMovimientos(); renderPanel(); renderStock(); renderAlertas();
       toast("Pedido recibido ✅ → Compra y Cuenta Corriente actualizadas","ok",5000);
-    }catch(e){ toast("Error: "+e.message,"err"); }
+    }catch(e){
+      console.error("Error en marcarRecibidoPP, paso:", paso, "| detalle:", e);
+      toast("❌ Error "+paso+": "+e.message+" — revisá la consola (F12) para más detalle. El pedido puede haber quedado a medio procesar, avisale a soporte con esta info.","err",10000);
+    }
     mostrarCargando(false);
   };
 
