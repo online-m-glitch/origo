@@ -2456,7 +2456,7 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
 
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="document.getElementById('modalSimuladorPrecio').classList.remove('show')">Cerrar</button>
-      <button class="btn btn-primary" id="btnIrAPublicacionSim" onclick="abrirEdicionPublicacionML(_simProductoActual?.sku)">✏️ Modificar en ML</button>
+      <button class="btn btn-primary" id="btnIrAPublicacionSim" onclick="abrirEdicionPublicacionML(_simProductoActual?.sku)" title="Te lleva a Mis Publicaciones, ya buscado por esta publicación">🔎 Buscar en Mis Publicaciones</button>
     </div>
   </div>
 </div>
@@ -6084,16 +6084,13 @@ async function abrirPublicacionML(mlItemId){
 function abrirEdicionPublicacionML(sku){
   const p=productos.find(x=>(x.sku||"").toUpperCase()===(sku||"").toUpperCase());
   if(!p || !p.ml_item_id){ toast("Este producto no tiene una Publicación ML vinculada.","err"); return; }
-  let idPublicacion = p.ml_item_id; // para publicaciones normales, la "publicación" es el propio ítem
-  if(p.es_catalogo){
-    if(!p.catalog_product_id){
-      toast("Es una publicación de Catálogo, pero todavía no tengo el ID de catálogo guardado — andá a Análisis ML y apretá '🎯 Revisar precio dinámico / catálogo' una vez, y volvé a intentar.","err",7000);
-      return;
-    }
-    idPublicacion = p.catalog_product_id; // en catálogo, la publicación se identifica por el ID de catálogo (MLAU...)
-  }
-  const url = "https://www.mercadolibre.com.ar/publicaciones/"+encodeURIComponent(idPublicacion)+"/modificar/bomni/product?item_id="+encodeURIComponent(p.ml_item_id);
+  // No existe una forma confiable de armar de antemano el link directo a la pantalla de edición
+  // (Mercado Libre genera un token de sesión dinámico al entrar desde su propia lista de publicaciones).
+  // En cambio, te llevamos a "Mis publicaciones" ya buscado por el ID de la publicación — desde ahí
+  // entrás con un clic y usás "Modificar" como siempre.
+  const url = "https://vendedores.mercadolibre.com.ar/publicaciones?search="+encodeURIComponent(p.ml_item_id);
   window.open(url, "_blank");
+  toast("Te llevamos a tus publicaciones, ya buscado por "+p.ml_item_id+" — entrá al resultado y apretá \"Modificar\".","ok",6000);
 }
 
 // ── Automatización de precios (precio dinámico) — ver estado y desactivar ──
