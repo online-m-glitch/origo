@@ -1195,9 +1195,12 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
               <div id="mlPreviewWrap" style="display:none;">
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
                   <div style="font-size:13px;font-weight:700;color:#0d2259;" id="mlPreviewResumen"></div>
-                  <div style="display:flex;align-items:center;gap:14px;">
+                  <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
                     <label style="font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px;color:var(--orange);">
                       <input type="checkbox" id="mlFiltroSinCatalogo" onchange="renderMLPreview()"> Ver solo sin catálogo
+                    </label>
+                    <label style="font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px;color:var(--text-soft);">
+                      <input type="checkbox" id="mlFiltroDuplicadas" onchange="renderMLPreview()"> Ver solo duplicadas
                     </label>
                     <label style="font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px;">
                       <input type="checkbox" id="mlSelAll" onchange="toggleSelectAllML(this.checked)" checked> Seleccionar todos
@@ -5071,7 +5074,11 @@ function renderMLPreview(){
     (sinCat?` &nbsp;·&nbsp; <span style="color:var(--orange);">⚠️ ${sinCat} SKU no encontrado</span>`:'');
 
   const filtroSinCat = document.getElementById('mlFiltroSinCatalogo')?.checked;
-  const indices = mlLineasPreview.map((l,i)=>i).filter(i=>!filtroSinCat || !mlLineasPreview[i].enCatalogo);
+  const filtroDupl = document.getElementById('mlFiltroDuplicadas')?.checked;
+  const indices = mlLineasPreview.map((l,i)=>i).filter(i=>
+    (!filtroSinCat || !mlLineasPreview[i].enCatalogo) &&
+    (!filtroDupl || mlLineasPreview[i].yaImportada)
+  );
 
   document.getElementById('mlPreviewBody').innerHTML = indices.map(i=>{
     const l = mlLineasPreview[i];
@@ -5100,8 +5107,11 @@ function renderMLPreview(){
     </tr>`;
   }).join('');
 
-  if(filtroSinCat && !indices.length){
-    document.getElementById('mlPreviewBody').innerHTML = `<tr><td colspan="9" style="text-align:center;padding:20px;color:var(--text-soft);">🎉 No queda ningún SKU sin encontrar.</td></tr>`;
+  if((filtroSinCat || filtroDupl) && !indices.length){
+    const msg = filtroSinCat && filtroDupl
+      ? "No hay líneas duplicadas sin catálogo."
+      : filtroDupl ? "🎉 No se encontró ninguna línea duplicada." : "🎉 No queda ningún SKU sin encontrar.";
+    document.getElementById('mlPreviewBody').innerHTML = `<tr><td colspan="9" style="text-align:center;padding:20px;color:var(--text-soft);">${msg}</td></tr>`;
   }
   actualizarResumenML();
 }
