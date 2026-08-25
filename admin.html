@@ -6084,15 +6084,15 @@ async function abrirPublicacionML(mlItemId){
 function abrirEdicionPublicacionML(sku){
   const p=productos.find(x=>(x.sku||"").toUpperCase()===(sku||"").toUpperCase());
   if(!p || !p.ml_item_id){ toast("Este producto no tiene una Publicación ML vinculada.","err"); return; }
-  let idParaEditar = p.ml_item_id;
+  let idPublicacion = p.ml_item_id; // para publicaciones normales, la "publicación" es el propio ítem
   if(p.es_catalogo){
     if(!p.catalog_product_id){
       toast("Es una publicación de Catálogo, pero todavía no tengo el ID de catálogo guardado — andá a Análisis ML y apretá '🎯 Revisar precio dinámico / catálogo' una vez, y volvé a intentar.","err",7000);
       return;
     }
-    idParaEditar = p.catalog_product_id;
+    idPublicacion = p.catalog_product_id; // en catálogo, la publicación se identifica por el ID de catálogo (MLAU...)
   }
-  const url = "https://www.mercadolibre.com.ar/publicaciones/"+encodeURIComponent(idParaEditar)+"/modificar/omni/variation";
+  const url = "https://www.mercadolibre.com.ar/publicaciones/"+encodeURIComponent(idPublicacion)+"/modificar/bomni/product?item_id="+encodeURIComponent(p.ml_item_id);
   window.open(url, "_blank");
 }
 
