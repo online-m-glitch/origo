@@ -898,10 +898,9 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
               <div class="form-group">
                 <label>Método 1</label>
                 <select id="pagoMetodo1" onchange="calcularPagoTotal()">
-                  <option value="Efectivo">💵 Efectivo</option>
                   <option value="MercadoPago">💳 Mercado Pago</option>
-                  <option value="TransferenciaMP">🏦 Transferencia por Mercado Pago</option>
                   <option value="Transferencia">🏦 Transferencia (otro banco)</option>
+                  <option value="Efectivo">💵 Efectivo</option>
                   <option value="Cheque">📄 Cheque</option>
                 </select>
               </div>
@@ -921,10 +920,9 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
               <div class="form-group">
                 <label>Método 2</label>
                 <select id="pagoMetodo2" onchange="calcularPagoTotal()">
-                  <option value="Transferencia">🏦 Transferencia (otro banco)</option>
-                  <option value="TransferenciaMP">🏦 Transferencia por Mercado Pago</option>
-                  <option value="Efectivo">💵 Efectivo</option>
                   <option value="MercadoPago">💳 Mercado Pago</option>
+                  <option value="Transferencia">🏦 Transferencia (otro banco)</option>
+                  <option value="Efectivo">💵 Efectivo</option>
                   <option value="Cheque">📄 Cheque</option>
                 </select>
               </div>
@@ -964,10 +962,9 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
                 <div class="form-group" id="ccFormaPagoWrap" style="display:none;">
                   <label>Forma de pago</label>
                   <select id="ccFormaPago">
-                    <option value="Efectivo">💵 Efectivo</option>
                     <option value="MercadoPago">💳 Mercado Pago</option>
-                    <option value="TransferenciaMP">🏦 Transferencia por Mercado Pago</option>
                     <option value="Transferencia">🏦 Transferencia (otro banco)</option>
+                    <option value="Efectivo">💵 Efectivo</option>
                     <option value="Cheque">📄 Cheque</option>
                   </select>
                 </div>
@@ -1043,10 +1040,9 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
               <div class="form-group">
                 <label>Forma de pago</label>
                 <select id="cFormaPago">
-                  <option value="Efectivo">💵 Efectivo</option>
                   <option value="MercadoPago">💳 Mercado Pago</option>
-                  <option value="TransferenciaMP">🏦 Transferencia por Mercado Pago</option>
                   <option value="Transferencia">🏦 Transferencia (otro banco)</option>
+                  <option value="Efectivo">💵 Efectivo</option>
                   <option value="Cheque">📄 Cheque</option>
                   <option value="A pagar">⏳ A pagar / cuenta corriente</option>
                 </select>
@@ -1475,10 +1471,9 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
             <div class="form-group" style="margin:0;">
               <label style="font-size:11px;">¿Cómo se pagó?</label>
               <select id="gMetodoPago" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
-                <option value="Efectivo">💵 Efectivo</option>
                 <option value="MercadoPago">💳 Mercado Pago</option>
-                <option value="TransferenciaMP">🏦 Transferencia por Mercado Pago</option>
                 <option value="Transferencia">🏦 Transferencia (otro banco)</option>
+                <option value="Efectivo">💵 Efectivo</option>
                 <option value="Pendiente">⏳ Todavía no lo pagué</option>
               </select>
             </div>
@@ -1753,10 +1748,9 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
         <div class="form-group">
           <label>¿Cómo lo pagaste?</label>
           <select id="pgMetodoPago">
-            <option value="Efectivo">💵 Efectivo</option>
             <option value="MercadoPago">💳 Mercado Pago</option>
-            <option value="TransferenciaMP">🏦 Transferencia por Mercado Pago</option>
             <option value="Transferencia">🏦 Transferencia (otro banco)</option>
+            <option value="Efectivo">💵 Efectivo</option>
           </select>
         </div>
         <div class="modal-actions">
@@ -4637,13 +4631,32 @@ function renderCompras(){
   tbody.innerHTML = lista.map((c,i)=>{
     const realIdx = compras.indexOf(c);
     const resumen = c.lineas.map(l=>`${l.sku} x${l.cantidad}`).join(", ");
+
+    // Si quedó como "A pagar" al crearse, revisamos si después se le cargó un pago en Cuenta Corriente
+    // (proveedor + factura) — así la columna refleja el estado real, no solo lo que decía al momento de crearla.
+    let colPago;
+    if(c.formaPago==="A pagar"){
+      const pagos = pagosDeCompra(c);
+      const totalPagado = pagos.reduce((a,p)=>a+(Number(p.importe)||0),0);
+      if(totalPagado>=c.total && c.total>0){
+        const metodos=[...new Set(pagos.map(p=>p.formaPago).filter(Boolean))];
+        colPago = `<span class="badge badge-green" title="Pagado ${metodos.length?'por '+metodos.join(' + '):''}">✅ Pagado</span>`;
+      } else if(totalPagado>0){
+        colPago = `<span class="badge badge-blue" title="Pagado $${fmt(totalPagado)} de $${fmt(c.total)}">🔶 Parcial ($${fmt(totalPagado)})</span>`;
+      } else {
+        colPago = `<span class="badge badge-orange">A pagar</span>`;
+      }
+    } else {
+      colPago = `<span class="badge ${c.formaPago==='Cheque'?'badge-blue':'badge-green'}">${esc(c.formaPago)}</span>`;
+    }
+
     return `<tr>
       <td>${c.fecha}</td>
       <td><strong>${esc(c.proveedor)}</strong></td>
       <td style="font-family:monospace;font-size:12px;">${esc(c.factura||"—")}</td>
       <td style="max-width:200px;font-size:12px;color:var(--text-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${esc(resumen)}">${esc(resumen)}</td>
       <td class="num" style="font-weight:700;">$${fmt(c.total)}</td>
-      <td><span class="badge ${c.formaPago==='A pagar'?'badge-orange':c.formaPago==='Cheque'?'badge-blue':'badge-green'}">${esc(c.formaPago)}</span></td>
+      <td>${colPago}</td>
       <td style="font-size:12px;color:var(--text-soft);">${esc(c.obs||"")}</td>
       <td>
         <button class="btn btn-ghost btn-sm" onclick="verDetalleCompra(${realIdx})" title="Ver detalle">🔍</button>
@@ -5510,8 +5523,8 @@ function renderGastosSeccion(){
   const empty=document.getElementById("gastosEmpty");
   if(!lista.length){ if(tbody) tbody.innerHTML=""; if(empty) empty.style.display="block"; return; }
   if(empty) empty.style.display="none";
-  const metodoIcono={Efectivo:'💵',MercadoPago:'💳',TransferenciaMP:'🏦',Transferencia:'🏦'};
-  const metodoLabel={TransferenciaMP:'Transferencia MP'};
+  const metodoIcono={Efectivo:'💵',MercadoPago:'💳',Transferencia:'🏦'};
+  const metodoLabel={};
   if(tbody) tbody.innerHTML=lista.map(g=>{
     const realIdx=gastos.indexOf(g);
     const pagado=g.pagado!==false;
@@ -5534,11 +5547,10 @@ function renderGastosSeccion(){
 }
 // ── Caja (Efectivo / Mercado Pago) ──
 // Determina si un método de pago mueve alguna de las Cajas (Efectivo/Mercado Pago), y cuál.
-// "TransferenciaMP" cuenta como Mercado Pago (sale de esa cuenta) — "Transferencia" (otro banco) y
-// "Cheque" no tocan ninguna Caja porque no están cargadas acá.
+// "Transferencia" (otro banco) y "Cheque" no tocan ninguna Caja porque no están cargadas acá.
 function cajaDeMetodoPago(metodo){
   if(metodo==="Efectivo") return "Efectivo";
-  if(metodo==="MercadoPago" || metodo==="TransferenciaMP") return "Mercado Pago";
+  if(metodo==="MercadoPago") return "Mercado Pago";
   return null;
 }
 function saldoCaja(caja){
