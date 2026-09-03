@@ -1667,11 +1667,12 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
                 <option value="Enviado a garantía">Enviado a garantía</option>
                 <option value="Resuelto">Resuelto</option>
               </select>
+              <button class="btn btn-primary" id="btnEnviarLoteGarantia" style="display:none;" onclick="abrirModalGarantiaLote()">📦 Enviar seleccionadas a garantía (<span id="devSeleccionadasCant">0</span>)</button>
             </div>
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Ingreso</th><th>SKU</th><th>Producto</th><th>Cant.</th><th>Motivo</th><th>Canal</th><th>Nro. Venta</th><th>Estado</th><th>Proveedor / Resultado</th><th>Acciones</th></tr></thead>
+              <thead><tr><th style="width:28px;"><input type="checkbox" id="devCheckAll" onchange="toggleCheckAllDev(this.checked)" title="Seleccionar todas las 'En depósito'"></th><th>Ingreso</th><th>SKU</th><th>Producto</th><th>Cant.</th><th>Motivo</th><th>Canal</th><th>Nro. Venta</th><th>Estado</th><th>Proveedor / Resultado</th><th>Acciones</th></tr></thead>
               <tbody id="devBody"></tbody>
             </table>
             <div class="empty" id="devEmpty" style="display:none;"><div class="icon">↩️</div><p>Sin devoluciones cargadas.</p></div>
@@ -1699,6 +1700,40 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
         <div class="modal-actions">
           <button class="btn btn-ghost" onclick="document.getElementById('modalGarantia').classList.remove('show')">Cancelar</button>
           <button class="btn btn-primary" onclick="confirmarEnvioGarantia()">Confirmar envío</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal enviar a garantía EN LOTE (varios productos, un solo remito) -->
+    <div class="overlay" id="modalGarantiaLote">
+      <div class="modal" style="max-width:600px;">
+        <h3>📦 Enviar seleccionadas a garantía</h3>
+        <div style="font-size:12px;color:var(--text-soft);margin-bottom:12px;">Se van a enviar juntas como un solo remito — quedan todas vinculadas entre sí para poder resolverlas en conjunto más adelante si querés.</div>
+        <div class="table-wrap" style="max-height:220px;overflow-y:auto;margin-bottom:14px;border:1px solid var(--border);border-radius:8px;">
+          <table>
+            <thead><tr><th>SKU</th><th>Producto</th><th>Cant.</th><th>Motivo</th></tr></thead>
+            <tbody id="garLoteBody"></tbody>
+          </table>
+        </div>
+        <div class="form-group">
+          <label>Fecha de envío</label>
+          <input type="date" id="garLoteFecha">
+        </div>
+        <div class="form-group">
+          <label>Proveedor</label>
+          <input type="text" id="garLoteProveedor" list="provListProd" placeholder="Ej: ANTHAY">
+        </div>
+        <div class="form-group">
+          <label>Nro. de remito (opcional)</label>
+          <input type="text" id="garLoteRemito" placeholder="Ej: R-0045">
+        </div>
+        <div class="form-group">
+          <label>Observaciones</label>
+          <input type="text" id="garLoteObs" placeholder="Opcional">
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" onclick="document.getElementById('modalGarantiaLote').classList.remove('show')">Cancelar</button>
+          <button class="btn btn-primary" onclick="confirmarEnvioGarantiaLote()">Confirmar envío de todas</button>
         </div>
       </div>
     </div>
@@ -5751,6 +5786,63 @@ async function confirmarEnvioGarantia(){
   renderDevoluciones(); renderStock(); renderAlertas(); renderMovimientos(); renderPanel();
 }
 
+// ── Envío a garantía en LOTE (varios productos, un solo remito al mismo proveedor) ──
+function abrirModalGarantiaLote(){
+  const idxs = [...document.querySelectorAll(".dev-check:checked")].map(c=>parseInt(c.dataset.idx));
+  if(!idxs.length){ toast("Seleccioná al menos una devolución.","err"); return; }
+  window._garLoteIdxs = idxs;
+
+  const filas = idxs.map(i=>devoluciones[i]);
+  document.getElementById("garLoteBody").innerHTML = filas.map(d=>`
+    <tr>
+      <td><span class="sku-tag">${esc(d.sku)}</span></td>
+      <td style="max-width:160px;font-size:12px;">${esc(d.producto||'')}</td>
+      <td class="num">${d.cantidad}</td>
+      <td style="font-size:12px;">${esc(d.motivo||'')}</td>
+    </tr>`).join("");
+
+  document.getElementById("garLoteFecha").value = new Date().toISOString().split("T")[0];
+  document.getElementById("garLoteProveedor").value = "";
+  document.getElementById("garLoteRemito").value = "";
+  document.getElementById("garLoteObs").value = "";
+  document.getElementById("modalGarantiaLote").classList.add("show");
+}
+async function confirmarEnvioGarantiaLote(){
+  const idxs = window._garLoteIdxs||[];
+  if(!idxs.length) return;
+  const fecha = document.getElementById("garLoteFecha").value || new Date().toISOString().split("T")[0];
+  const proveedor = document.getElementById("garLoteProveedor").value.trim();
+  const remito = document.getElementById("garLoteRemito").value.trim();
+  const obsExtra = document.getElementById("garLoteObs").value.trim();
+  if(!proveedor){ toast("Ingresá el proveedor.","err"); return; }
+
+  mostrarCargando(true);
+  let ok=0, errores=0;
+  for(const idx of idxs){
+    const dev = devoluciones[idx];
+    if(!dev || dev.estado!=="En depósito") continue; // por si cambió de estado mientras tanto
+    const campos={estado:"Enviado a garantía", proveedor, fecha_garantia:fecha, remito_garantia:remito||null};
+    try{
+      if(dev.id) await sbGuardar("updateDevolucion",{id:dev.id, campos});
+      Object.assign(dev, campos);
+    }catch(e){ errores++; continue; }
+
+    const p=productos.find(x=>x.sku.toUpperCase()===dev.sku.toUpperCase());
+    const mData={fecha, tipo:"Baja", sku:dev.sku, producto:dev.producto||"", cantidad:dev.cantidad, costo:p?p.costo:0, precio:0,
+      obs:"Enviado a garantía a "+proveedor+(remito?" — Remito "+remito:"")+(obsExtra?" — "+obsExtra:""), origen:""};
+    try{
+      const sm=await sbGuardar("movimiento",mData);
+      movimientos.unshift(Object.assign({},mData,sm||{}));
+      ok++;
+    }catch(e){ errores++; }
+  }
+  mostrarCargando(false);
+  document.getElementById("modalGarantiaLote").classList.remove("show");
+  window._garLoteIdxs = [];
+  renderDevoluciones(); renderStock(); renderAlertas(); renderMovimientos(); renderPanel();
+  toast(`📦 ${ok} producto(s) enviados a garantía a ${proveedor}${errores?` · ${errores} con error`:""}`, errores?"err":"ok", 6000);
+}
+
 function toggleResCreditoWrap(){
   const esCredito=document.getElementById("resResultado").value==="Credito";
   document.getElementById("resCreditoWrap").style.display=esCredito?"block":"none";
@@ -5848,7 +5940,7 @@ function renderDevoluciones(){
 
   const tbody=document.getElementById("devBody");
   const empty=document.getElementById("devEmpty");
-  if(!lista.length){ if(tbody) tbody.innerHTML=""; if(empty) empty.style.display="block"; return; }
+  if(!lista.length){ if(tbody) tbody.innerHTML=""; if(empty) empty.style.display="block"; actualizarBotonLoteGarantia(); return; }
   if(empty) empty.style.display="none";
 
   if(tbody) tbody.innerHTML=lista.map(d=>{
@@ -5856,13 +5948,15 @@ function renderDevoluciones(){
     const badgeCls=d.estado==="En depósito"?"badge-orange":d.estado==="Enviado a garantía"?"badge-blue":"badge-green";
     let colProvResultado="—";
     const resultadoLabel={Reemplazo:"Reemplazo",Reparado:"Reparado",Credito:"💳 Crédito a favor",Reembolso:"Reembolso",Rechazado:"Rechazado"};
-    if(d.estado==="Enviado a garantía") colProvResultado=esc(d.proveedor||"");
+    if(d.estado==="Enviado a garantía") colProvResultado=esc(d.proveedor||"")+(d.remito_garantia?" · Remito "+esc(d.remito_garantia):"");
     if(d.estado==="Resuelto") colProvResultado=esc(d.proveedor||"")+" · "+esc(resultadoLabel[d.resultado]||d.resultado||"");
     let acciones="";
     if(d.estado==="En depósito") acciones+=`<button class="btn btn-ghost btn-sm" onclick="abrirModalGarantia(${realIdx})">📦 Enviar a garantía</button> `;
     if(d.estado==="Enviado a garantía") acciones+=`<button class="btn btn-ghost btn-sm" onclick="abrirModalResolver(${realIdx})">✅ Resolver</button> `;
     if(esAdmin()) acciones+=`<button class="btn btn-danger btn-sm" onclick="eliminarDevolucion(${realIdx})">✕</button>`;
+    const puedeSeleccionar = d.estado==="En depósito";
     return `<tr>
+      <td>${puedeSeleccionar?`<input type="checkbox" class="dev-check" data-idx="${realIdx}" onchange="actualizarBotonLoteGarantia()">`:''}</td>
       <td>${d.fecha_ingreso}</td>
       <td><span class="sku-tag">${esc(d.sku)}</span></td>
       <td style="max-width:160px;">${esc(d.producto||'')}</td>
@@ -5875,6 +5969,19 @@ function renderDevoluciones(){
       <td><div class="btn-group">${acciones}</div></td>
     </tr>`;
   }).join("");
+  actualizarBotonLoteGarantia();
+}
+function toggleCheckAllDev(checked){
+  document.querySelectorAll(".dev-check").forEach(c=>c.checked=checked);
+  actualizarBotonLoteGarantia();
+}
+function actualizarBotonLoteGarantia(){
+  const seleccionadas = [...document.querySelectorAll(".dev-check:checked")];
+  const btn = document.getElementById("btnEnviarLoteGarantia");
+  if(!btn) return;
+  btn.style.display = seleccionadas.length>=1 ? "inline-flex" : "none";
+  const cantEl = document.getElementById("devSeleccionadasCant");
+  if(cantEl) cantEl.textContent = seleccionadas.length;
 }
 // ── Listas de Precios de Proveedores ──
 let lpLineasPreview = [];
