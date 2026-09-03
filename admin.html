@@ -734,7 +734,7 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>SKU</th><th>Producto</th><th>Proveedor</th><th>Stock Depósito</th><th>Stock Full ML</th><th>Ajuste Full ML</th><th>Stock Total</th><th>Vendido</th><th>Última venta</th><th>Estado</th></tr></thead>
+              <thead><tr><th>SKU</th><th>Producto</th><th>Proveedor</th><th>Stock Depósito</th><th title="Devoluciones defectuosas/dañadas que todavía no se resolvieron — no cuentan como vendible">En revisión</th><th>Stock Full ML</th><th>Ajuste Full ML</th><th>Stock Total</th><th>Vendido</th><th>Última venta</th><th>Estado</th></tr></thead>
               <tbody id="stockBody"></tbody>
             </table>
           </div>
@@ -1653,7 +1653,7 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
             </div>
             <button class="btn btn-primary" onclick="registrarDevolucion()">+ Registrar ingreso</button>
           </div>
-          <div style="padding:0 16px 12px;font-size:11px;color:var(--text-soft);">Al registrar, se suma 1 movimiento de "Ingreso" al Stock Depósito (el producto vuelve a estar físicamente en tu poder, aunque esté para revisar/garantía).</div>
+          <div style="padding:0 16px 12px;font-size:11px;color:var(--text-soft);">Si el motivo es <strong>No conforme, Error de envío</strong> u <strong>Otro</strong>, suma directo al Stock Depósito vendible. Si es <strong>Defectuoso</strong> o <strong>Dañado en transporte</strong>, no suma al vendible — queda en "Stock en revisión" (columna aparte en Stock Actual) hasta que resuelvas la garantía como Reparado o Reemplazo.</div>
         </div>
 
         <div class="card">
@@ -3000,6 +3000,14 @@ function stockVirtualCombo(p, calcFn, _visitados){
   }
   return min===Infinity?0:min;
 }
+// Unidades de este SKU que están físicamente en el depósito por una devolución, pero NO cuentan
+// como stock vendible (llegaron defectuosas/dañadas y todavía no se resolvió la garantía).
+function stockEnRevision(sku){
+  const skuUp=(sku||"").toUpperCase().trim();
+  return devoluciones
+    .filter(d=>(d.sku||"").toUpperCase()===skuUp && d.estado==="En depósito" && d.suma_stock===false)
+    .reduce((a,d)=>a+(Number(d.cantidad)||0),0);
+}
 function calcularStockDeposito(sku, _visitados){
   const skuUp = sku.toUpperCase().trim();
   _visitados = _visitados || new Set();
@@ -3582,6 +3590,7 @@ function renderStock(){
   });
   const filas = lista.map(p=>{
     const dep=calcularStockDeposito(p.sku);
+    const revision=stockEnRevision(p.sku);
     const full=calcularStockFullML(p.sku);
     const total=dep+full;
     const vend=calcularVendido(p.sku);
@@ -3590,16 +3599,17 @@ function renderStock(){
     if(total<=0){ estado="Sin stock"; cls="badge-red"; }
     else if(total<(p.stockMin||0)){ estado="Bajo mínimo"; cls="badge-orange"; }
     else { estado="Con stock"; cls="badge-green"; }
-    return {p, dep, full, total, vend, ultimaVenta, estado, cls};
+    return {p, dep, revision, full, total, vend, ultimaVenta, estado, cls};
   }).filter(f=>!estadoFiltro || f.estado===estadoFiltro);
 
   const rows = filas.map(f=>{
-    const {p, dep, full, total, vend, ultimaVenta, estado, cls}=f;
+    const {p, dep, revision, full, total, vend, ultimaVenta, estado, cls}=f;
     return `<tr id="stockrow-${esc(p.sku)}">
       <td><span class="sku-tag">${esc(p.sku)}</span></td>
       <td>${esc(p.nombre)}</td>
       <td>${esc(p.proveedor||"")}</td>
       <td class="num ${dep<=0?'num-neg':''}">${dep}</td>
+      <td class="num" style="${revision>0?'color:var(--orange);font-weight:700;':'color:var(--text-soft);'}" title="${revision>0?revision+' unidad(es) de devolución defectuosa/dañada, todavía sin resolver':''}">${revision>0?revision:'—'}</td>
       <td class="num" style="font-weight:700;color:var(--ml-blue);">${full}</td>
       <td>
         <div style="display:flex;align-items:center;gap:6px;">
@@ -3615,7 +3625,7 @@ function renderStock(){
       <td><span class="badge ${cls}">${estado}</span></td>
     </tr>`;
   });
-  document.getElementById("stockBody").innerHTML = rows.join("") || `<tr><td colspan="10" style="text-align:center;padding:24px;color:var(--text-soft);">${q||estadoFiltro?"Sin resultados para ese filtro.":"Sin productos."}</td></tr>`;
+  document.getElementById("stockBody").innerHTML = rows.join("") || `<tr><td colspan="11" style="text-align:center;padding:24px;color:var(--text-soft);">${q||estadoFiltro?"Sin resultados para ese filtro.":"Sin productos."}</td></tr>`;
 }
 async function guardarAjusteFullML(sku){
   if(checkViewer("Ajustar stock Full ML")) return;
@@ -5722,6 +5732,10 @@ function autocompletarDevSku(valor){
   const p=productos.find(x=>x.sku.toUpperCase()===sku);
   document.getElementById("devProducto").value=p?p.nombre:"";
 }
+// Motivos que indican que el producto NO está en condiciones de venderse tal cual — no suman
+// al Stock Depósito vendible hasta que se resuelva la garantía (Reparado/Reemplazo).
+const MOTIVOS_NO_VENDIBLES = ["Defectuoso", "Dañado en transporte"];
+
 async function registrarDevolucion(){
   if(checkViewer("Registrar devolución")) return;
   const fecha=document.getElementById("devFecha").value || new Date().toISOString().split("T")[0];
@@ -5733,20 +5747,28 @@ async function registrarDevolucion(){
   const obs=document.getElementById("devObs").value.trim();
   if(!sku){ toast("Ingresá el SKU.","err"); return; }
   const p=productos.find(x=>x.sku.toUpperCase()===sku);
-  const data={fecha_ingreso:fecha, sku, producto:p?p.nombre:"", cantidad, motivo, canal, nroVenta, estado:"En depósito", obs};
+  const sumaStock = !MOTIVOS_NO_VENDIBLES.includes(motivo);
+  const data={fecha_ingreso:fecha, sku, producto:p?p.nombre:"", cantidad, motivo, canal, nroVenta, estado:"En depósito", obs, suma_stock:sumaStock};
   try{
     const saved=await sbGuardar("devolucion",data);
     devoluciones.unshift(Object.assign({},data,saved||{}));
   }catch(e){ toast("Error guardando la devolución: "+e.message,"err"); return; }
-  // Suma stock: el producto vuelve a estar físicamente en el depósito
-  const mData={fecha, tipo:"Ingreso", sku, producto:p?p.nombre:"", cantidad, costo:p?p.costo:0, precio:0, obs:"Devolución cliente ("+motivo+")"+(nroVenta?" — Venta #"+nroVenta:""), origen:""};
-  try{
-    const sm=await sbGuardar("movimiento",mData);
-    movimientos.unshift(Object.assign({},mData,sm||{}));
-  }catch(e){ toast("Devolución guardada, pero hubo un error sumando el stock: "+e.message,"err"); }
+
+  if(sumaStock){
+    // Suma stock vendible: el producto vuelve a estar físicamente en el depósito y en condiciones de venderse
+    const mData={fecha, tipo:"Ingreso", sku, producto:p?p.nombre:"", cantidad, costo:p?p.costo:0, precio:0, obs:"Devolución cliente ("+motivo+")"+(nroVenta?" — Venta #"+nroVenta:""), origen:""};
+    try{
+      const sm=await sbGuardar("movimiento",mData);
+      movimientos.unshift(Object.assign({},mData,sm||{}));
+    }catch(e){ toast("Devolución guardada, pero hubo un error sumando el stock: "+e.message,"err"); }
+  }
+  // Si NO suma stock (Defectuoso/Dañado): no se genera movimiento — queda solo como "Stock en revisión"
+  // (está físicamente con vos, pero no se cuenta como vendible hasta resolver la garantía).
 
   ["devSku","devProducto","devCantidad","devNroVenta","devObs"].forEach(id=>document.getElementById(id).value=(id==="devCantidad"?"1":""));
-  toast("Devolución registrada ✅ · Stock depósito actualizado.","ok");
+  toast(sumaStock
+    ? "Devolución registrada ✅ · Stock depósito vendible actualizado."
+    : "Devolución registrada ✅ · Queda en \"Stock en revisión\" (no se suma al stock vendible hasta resolver la garantía).","ok",6000);
   renderDevoluciones(); renderStock(); renderAlertas(); renderMovimientos(); renderPanel();
 }
 
@@ -5772,13 +5794,16 @@ async function confirmarEnvioGarantia(){
     Object.assign(dev, campos);
   }catch(e){ toast("Error actualizando: "+e.message,"err"); return; }
 
-  // Resta stock: el producto sale físicamente hacia el proveedor
-  const p=productos.find(x=>x.sku.toUpperCase()===dev.sku.toUpperCase());
-  const mData={fecha, tipo:"Baja", sku:dev.sku, producto:dev.producto||"", cantidad:dev.cantidad, costo:p?p.costo:0, precio:0, obs:"Enviado a garantía a "+proveedor+(obsExtra?" — "+obsExtra:""), origen:""};
-  try{
-    const sm=await sbGuardar("movimiento",mData);
-    movimientos.unshift(Object.assign({},mData,sm||{}));
-  }catch(e){ toast("Actualizado, pero hubo un error restando el stock: "+e.message,"err"); }
+  // Resta stock SOLO si originalmente había sumado al vendible (suma_stock=true) — si nunca sumó
+  // (era "Defectuoso"/"Dañado", quedó en revisión), no hay nada que restar del stock vendible.
+  if(dev.suma_stock!==false){
+    const p=productos.find(x=>x.sku.toUpperCase()===dev.sku.toUpperCase());
+    const mData={fecha, tipo:"Baja", sku:dev.sku, producto:dev.producto||"", cantidad:dev.cantidad, costo:p?p.costo:0, precio:0, obs:"Enviado a garantía a "+proveedor+(obsExtra?" — "+obsExtra:""), origen:""};
+    try{
+      const sm=await sbGuardar("movimiento",mData);
+      movimientos.unshift(Object.assign({},mData,sm||{}));
+    }catch(e){ toast("Actualizado, pero hubo un error restando el stock: "+e.message,"err"); }
+  }
 
   document.getElementById("modalGarantia").classList.remove("show");
   devIdxActual=null;
@@ -5827,14 +5852,16 @@ async function confirmarEnvioGarantiaLote(){
       Object.assign(dev, campos);
     }catch(e){ errores++; continue; }
 
-    const p=productos.find(x=>x.sku.toUpperCase()===dev.sku.toUpperCase());
-    const mData={fecha, tipo:"Baja", sku:dev.sku, producto:dev.producto||"", cantidad:dev.cantidad, costo:p?p.costo:0, precio:0,
-      obs:"Enviado a garantía a "+proveedor+(remito?" — Remito "+remito:"")+(obsExtra?" — "+obsExtra:""), origen:""};
-    try{
-      const sm=await sbGuardar("movimiento",mData);
-      movimientos.unshift(Object.assign({},mData,sm||{}));
-      ok++;
-    }catch(e){ errores++; }
+    if(dev.suma_stock!==false){
+      const p=productos.find(x=>x.sku.toUpperCase()===dev.sku.toUpperCase());
+      const mData={fecha, tipo:"Baja", sku:dev.sku, producto:dev.producto||"", cantidad:dev.cantidad, costo:p?p.costo:0, precio:0,
+        obs:"Enviado a garantía a "+proveedor+(remito?" — Remito "+remito:"")+(obsExtra?" — "+obsExtra:""), origen:""};
+      try{
+        const sm=await sbGuardar("movimiento",mData);
+        movimientos.unshift(Object.assign({},mData,sm||{}));
+      }catch(e){ errores++; continue; }
+    }
+    ok++;
   }
   mostrarCargando(false);
   document.getElementById("modalGarantiaLote").classList.remove("show");
