@@ -5931,6 +5931,86 @@ async function confirmarResolverGarantia(){
   renderDevoluciones(); renderStock(); renderAlertas(); renderMovimientos(); renderPanel(); renderCC();
 }
 
+// Comprobante imprimible (o "Guardar como PDF") de un remito de envío a garantía —
+// junta todas las devoluciones que se enviaron juntas con ese mismo número de remito.
+function verComprobanteRemito(remito, proveedor){
+  const items = devoluciones.filter(d=>d.remito_garantia===remito && d.proveedor===proveedor);
+  if(!items.length){ toast("No encontré los datos de ese remito.","err"); return; }
+  const fecha = items[0].fecha_garantia || items[0].fecha_ingreso || "";
+  const totalUnid = items.reduce((a,d)=>a+(Number(d.cantidad)||0),0);
+
+  const provInfo = proveedoresDB.find(x=>(x.nombre||"").toUpperCase()===(proveedor||"").toUpperCase());
+  const tel = provInfo?.telefono || "";
+  const email = provInfo?.email || "";
+
+  const mensaje = `Hola! Te mando el remito de envío a garantía Nº ${remito} — ${items.length} producto(s), ${totalUnid} unidad(es) en total.\n\nAdjunto el PDF con el detalle. Gracias!`;
+  const waUrl = tel ? "https://wa.me/"+tel.replace(/\D/g,"")+"?text="+encodeURIComponent(mensaje) : "https://wa.me/?text="+encodeURIComponent(mensaje);
+  const mailUrl = "mailto:"+encodeURIComponent(email)+"?subject="+encodeURIComponent("Remito de garantía Nº "+remito)+"&body="+encodeURIComponent(mensaje);
+
+  const filasHtml = items.map(d=>`
+    <tr>
+      <td>${esc(d.sku)}</td>
+      <td>${esc(d.producto||"")}</td>
+      <td style="text-align:center;">${d.cantidad}</td>
+      <td>${esc(d.motivo||"")}</td>
+      <td>${esc(d.nroVenta||"—")}</td>
+    </tr>`).join("");
+
+  const html = `<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8">
+<title>Remito ${esc(remito)} — ${esc(proveedor)}</title>
+<style>
+  body{font-family:Arial,Helvetica,sans-serif;color:#0d2259;padding:32px;max-width:800px;margin:0 auto;}
+  h1{font-size:20px;margin-bottom:2px;}
+  .sub{color:#5b6b8a;font-size:12px;margin-bottom:24px;}
+  .datos{display:flex;justify-content:space-between;margin-bottom:20px;font-size:13px;border:1px solid #dce4f5;border-radius:8px;padding:14px 18px;background:#f8f9fc;}
+  .datos div strong{display:block;font-size:11px;color:#5b6b8a;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;}
+  table{width:100%;border-collapse:collapse;margin-bottom:20px;font-size:13px;}
+  th{background:#0d2259;color:#fff;text-align:left;padding:8px 10px;font-size:11px;text-transform:uppercase;}
+  td{padding:8px 10px;border-bottom:1px solid #e5e9f2;}
+  tfoot td{font-weight:700;border-top:2px solid #0d2259;border-bottom:none;}
+  .firmas{display:flex;justify-content:space-between;margin-top:60px;}
+  .firma{width:40%;text-align:center;border-top:1px solid #333;padding-top:6px;font-size:12px;color:#5b6b8a;}
+  .barraAcciones{display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap;}
+  .barraAcciones button, .barraAcciones a{padding:10px 18px;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:13px;text-decoration:none;display:inline-block;}
+  .btnImprimir{background:#f5c400;color:#0d2259;}
+  .btnWA{background:#25D366;color:#fff;}
+  .btnMail{background:#1a56db;color:#fff;}
+  .avisoAdjuntar{font-size:11px;color:#9a3412;background:#fff7ed;padding:8px 12px;border-radius:6px;margin-bottom:20px;display:none;}
+  @media print{ .barraAcciones{display:none;} .avisoAdjuntar{display:none;} body{padding:0;} }
+</style>
+</head><body>
+  <div class="barraAcciones">
+    <button class="btnImprimir" onclick="window.print(); document.getElementById('aviso').style.display='block';">🖨️ 1) Guardar como PDF</button>
+    <a class="btnWA" href="${waUrl}" target="_blank" onclick="document.getElementById('aviso').style.display='block';">📱 2) Enviar por WhatsApp</a>
+    <a class="btnMail" href="${mailUrl}" onclick="document.getElementById('aviso').style.display='block';">📧 2) Enviar por Email</a>
+  </div>
+  <div class="avisoAdjuntar" id="aviso">📎 En el paso 1, elegí "Guardar como PDF" en el destino de la impresión (no "Imprimir" en papel). Después, en el WhatsApp o Email que se abrió, adjuntá manualmente ese PDF que acabás de guardar — ningún sitio web puede adjuntarlo solo, es una limitación de seguridad de los navegadores.</div>
+  <h1>ORIGO — Comprobante de envío a garantía</h1>
+  <div class="sub">Remito Nº ${esc(remito)}</div>
+  <div class="datos">
+    <div><strong>Proveedor</strong>${esc(proveedor)}</div>
+    <div><strong>Fecha de envío</strong>${esc(fecha)}</div>
+    <div><strong>Cantidad de productos</strong>${items.length}</div>
+    <div><strong>Total unidades</strong>${totalUnid}</div>
+  </div>
+  <table>
+    <thead><tr><th>SKU</th><th>Producto</th><th style="text-align:center;">Cant.</th><th>Motivo</th><th>Nro. Venta</th></tr></thead>
+    <tbody>${filasHtml}</tbody>
+    <tfoot><tr><td colspan="2">Total</td><td style="text-align:center;">${totalUnid}</td><td colspan="2"></td></tr></tfoot>
+  </table>
+  <div class="firmas">
+    <div class="firma">Entrega (vendedor)</div>
+    <div class="firma">Recibe (${esc(proveedor)})</div>
+  </div>
+</body></html>`;
+
+  const ventana = window.open("", "_blank");
+  if(!ventana){ toast("El navegador bloqueó la ventana — permití pop-ups para ver el comprobante.","err",6000); return; }
+  ventana.document.write(html);
+  ventana.document.close();
+}
+
 function eliminarDevolucion(idx){
   const dev=devoluciones[idx];
   confirmCb=async()=>{
@@ -5975,8 +6055,8 @@ function renderDevoluciones(){
     const badgeCls=d.estado==="En depósito"?"badge-orange":d.estado==="Enviado a garantía"?"badge-blue":"badge-green";
     let colProvResultado="—";
     const resultadoLabel={Reemplazo:"Reemplazo",Reparado:"Reparado",Credito:"💳 Crédito a favor",Reembolso:"Reembolso",Rechazado:"Rechazado"};
-    if(d.estado==="Enviado a garantía") colProvResultado=esc(d.proveedor||"")+(d.remito_garantia?" · Remito "+esc(d.remito_garantia):"");
-    if(d.estado==="Resuelto") colProvResultado=esc(d.proveedor||"")+" · "+esc(resultadoLabel[d.resultado]||d.resultado||"");
+    if(d.estado==="Enviado a garantía") colProvResultado=esc(d.proveedor||"")+(d.remito_garantia?` · <a href="#" onclick="verComprobanteRemito('${esc(d.remito_garantia)}','${esc(d.proveedor)}');return false;" style="color:var(--ml-blue);text-decoration:underline;">🖨️ Remito ${esc(d.remito_garantia)}</a>`:"");
+    if(d.estado==="Resuelto") colProvResultado=esc(d.proveedor||"")+" · "+esc(resultadoLabel[d.resultado]||d.resultado||"")+(d.remito_garantia?` · <a href="#" onclick="verComprobanteRemito('${esc(d.remito_garantia)}','${esc(d.proveedor)}');return false;" style="color:var(--ml-blue);text-decoration:underline;font-size:11px;">🖨️ Remito</a>`:"");
     let acciones="";
     if(d.estado==="En depósito") acciones+=`<button class="btn btn-ghost btn-sm" onclick="abrirModalGarantia(${realIdx})">📦 Enviar a garantía</button> `;
     if(d.estado==="Enviado a garantía") acciones+=`<button class="btn btn-ghost btn-sm" onclick="abrirModalResolver(${realIdx})">✅ Resolver</button> `;
