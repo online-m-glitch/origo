@@ -6477,6 +6477,25 @@ async function verAutomatizacionPrecio(mlItemId, sku){
       document.getElementById("autoPrecioMax").value = data.max_price||"";
       document.getElementById("autoPrecioRangoWrap").style.display="block";
     }
+
+    // Precio recomendado por ML para ser competitivo (price_to_win) — informativo, no se aplica solo.
+    // OJO: esto no lo pude probar en vivo, si no aparece nada relevante avisame para ajustarlo.
+    try{
+      const rPtw=await fetch(SB_URL+"/functions/v1/ml-oauth", {
+        method:"POST",
+        headers:{"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY},
+        body:JSON.stringify({grant_type:"proxy", path:"/items/"+encodeURIComponent(mlItemId)+"/price_to_win?siteId=MLA&version=v2", access_token:mlToken})
+      });
+      const dataPtw=await rPtw.json();
+      if(rPtw.ok && dataPtw.price_to_win!=null){
+        const ptw=dataPtw.price_to_win;
+        const cajaPtw=document.createElement("div");
+        cajaPtw.style.cssText="margin-top:12px;padding:10px 12px;background:#f0f9ff;border-radius:8px;border:1px solid #bae6fd;font-size:12px;";
+        cajaPtw.innerHTML = `📊 <strong>Precio recomendado por ML para competir:</strong> $${fmt(ptw)}`+
+          (activa?` <button class="btn btn-ghost btn-sm" style="margin-left:6px;padding:2px 8px;font-size:11px;" onclick="document.getElementById('autoPrecioMax').value=${ptw};">Usar como máximo</button>`:"");
+        document.getElementById("autoPrecioContenido").appendChild(cajaPtw);
+      }
+    }catch(e){ /* si falla, simplemente no se muestra esta info extra */ }
   }catch(e){
     document.getElementById("autoPrecioContenido").textContent="Error consultando ML: "+e.message;
   }
