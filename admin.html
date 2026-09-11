@@ -1901,9 +1901,10 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
               </select>
               <select id="analisisFiltro" onchange="renderAnalisis()" style="padding:7px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:12px;">
                 <option value="">Todos</option>
-                <option value="Rentable">Solo rentables</option>
-                <option value="Revisar">A revisar</option>
-                <option value="Pérdida">Con pérdida</option>
+                <option value="Rentable">Solo rentables (≥20%)</option>
+                <option value="Aceptable">Aceptable (15-20%)</option>
+                <option value="Revisar">A revisar (10-15%)</option>
+                <option value="Pérdida">Con pérdida (&lt;10%)</option>
               </select>
             </div>
             <div class="toolbar" style="padding-top:8px;border-top:1px dashed var(--border);">
@@ -1916,7 +1917,7 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
               <button class="btn btn-ghost btn-sm" onclick="aplicarRetencionesRealesAnalisis()" title="Calcula el % promedio real de IIBB y de IVA+Ganancias a partir de tus ventas ML con facturación sincronizada, y lo carga en los campos de al lado">📊 Retenciones reales</button>
               <button class="btn btn-ghost btn-sm" onclick="sincronizarFeesML()" title="Sincronizar comisiones ML">🔄 Comisiones ML</button>
               <span id="ultimaSyncFees" style="font-size:10px;color:var(--text-soft);"></span>
-              <button class="btn btn-ghost btn-sm" onclick="revisarPreciosDinamicos()" title="Revisa qué publicaciones tienen 'Automatización de precios' activa, y cuáles son publicaciones de Catálogo de ML — ambos casos tienen reglas de precio distintas">🎯 Precio dinámico / catálogo</button>
+              <button class="btn btn-ghost btn-sm" onclick="revisarPreciosDinamicos()" title="Revisa qué publicaciones tienen 'Automatización de precios' activa, cuáles son de Catálogo de ML, y el estado real (activa/pausada/inactiva) de cada una">🎯 Precio dinámico / catálogo / estado</button>
               <span id="ultimaSyncDinamico" style="font-size:10px;color:var(--text-soft);"></span>
             </div>
           </div>
@@ -3166,7 +3167,7 @@ function renderProductos(){
       <td data-col="check" style="text-align:center;"><input type="checkbox" class="prod-check" data-sku="${esc(p.sku)}" onchange="actualizarSeleccion()" style="width:15px;height:15px;cursor:pointer;"></td>
       <td data-col="img">${thumb}</td>
       <td data-col="sku"><span class="sku-tag">${esc(p.sku)}</span></td>
-      <td data-col="producto" style="max-width:180px;">${esc(p.nombre)}${p.tipo==='combo'?' <span class="badge badge-orange" title="Combo de '+((p.componentes||[]).length)+' componente(s)" style="font-size:10px;padding:2px 5px;">🧩</span>':''}${p.precio_dinamico?' <span class="badge badge-orange" title="Tiene &quot;Automatización de precios&quot; activa en ML" style="font-size:10px;padding:2px 5px;">🎯</span>':''}${p.es_catalogo?' <span class="badge badge-blue" title="Es una publicación de Catálogo de MercadoLibre" style="font-size:10px;padding:2px 5px;">📘</span>':''}</td>
+      <td data-col="producto" style="max-width:180px;">${esc(p.nombre)}${p.tipo==='combo'?' <span class="badge badge-orange" title="Combo de '+((p.componentes||[]).length)+' componente(s)" style="font-size:10px;padding:2px 5px;">🧩</span>':''}${p.precio_dinamico?' <span class="badge badge-orange" title="Tiene &quot;Automatización de precios&quot; activa en ML" style="font-size:10px;padding:2px 5px;">🎯</span>':''}${p.es_catalogo?' <span class="badge badge-blue" title="Es una publicación de Catálogo de MercadoLibre" style="font-size:10px;padding:2px 5px;">📘</span>':''}${estadoMLInfo(p.estado_ml)?` <span style="font-size:9px;padding:2px 6px;border-radius:10px;font-weight:700;color:${estadoMLInfo(p.estado_ml).color};background:${estadoMLInfo(p.estado_ml).bg};" title="Estado de la publicación en ML">${estadoMLInfo(p.estado_ml).label}</span>`:''}</td>
       <td data-col="proveedor">${esc(p.proveedor||"")}</td>
       <td data-col="rubro" style="font-size:12px;">${esc(p.rubro||"")}</td>
       <td data-col="costo" class="num">$${fmt(p.costo)}</td>
@@ -4030,6 +4031,13 @@ function actualizarSimuladorPrecio(){
     </tr>`;
   }).join("");
 }
+// Traduce el "status" real de la publicación en ML a color y etiqueta
+function estadoMLInfo(estado){
+  if(estado==="active") return {label:"Activa", color:"#16a34a", bg:"#dcfce7"};
+  if(estado==="paused") return {label:"Pausada", color:"#ea7000", bg:"#fff7ed"};
+  if(!estado) return null; // todavía no se sincronizó
+  return {label: estado==="closed"?"Cerrada":estado==="under_review"?"En revisión":"Inactiva", color:"#dc2626", bg:"#fef2f2"};
+}
 function calcAnaliML(p){
   const precioCatalogo=p.precio||0, costo=p.costo||0;
   const feeReal=feesML[p.sku];
@@ -4049,7 +4057,8 @@ function calcAnaliML(p){
   const margen=recibis-costo;
   const margenPct=precio>0?(margen/precio)*100:0;
   let rec, cls;
-  if(margenPct>=25){ rec="Rentable"; cls="badge-green"; }
+  if(margenPct>=20){ rec="Rentable"; cls="badge-green"; }
+  else if(margenPct>=15){ rec="Aceptable"; cls="badge-blue"; }
   else if(margenPct>=10){ rec="Revisar"; cls="badge-orange"; }
   else { rec="Pérdida"; cls="badge-red"; }
   return { precio, precioMLReal, desactualizado, comision, comisionFixed, comisionPct, envio, impuesto, percepcion, recibis, margen, margenPct, rec, cls, comisionReal };
@@ -4089,6 +4098,7 @@ function renderAnalisis(){
   });
   document.getElementById("analisisBody").innerHTML=lista.map(p=>{
     const a=calcAnaliML(p);
+    const eml=estadoMLInfo(p.estado_ml);
     return `<tr>
       <td>
         <div style="display:flex;align-items:center;gap:6px;">
@@ -4097,6 +4107,7 @@ function renderAnalisis(){
           ${p.ml_item_id?`<img src="${ML_LOGO_B64}" alt="Ver en ML" title="Abrir publicación en MercadoLibre" style="width:18px;height:18px;object-fit:contain;vertical-align:middle;cursor:pointer;" onclick="abrirPublicacionML('${esc(p.ml_item_id)}')">`:''}
           ${p.precio_dinamico?`<span class="badge badge-orange" style="font-size:9px;padding:2px 5px;cursor:pointer;" title="Tiene 'Automatización de precios' activa en ML — hacé clic para ver el detalle y poder desactivarla" onclick="verAutomatizacionPrecio('${esc(p.ml_item_id)}','${esc(p.sku)}')">🎯</span>`:''}
           ${p.es_catalogo?`<span class="badge badge-blue" style="font-size:9px;padding:2px 5px;" title="Es una publicación de Catálogo de MercadoLibre">📘</span>`:''}
+          ${eml?`<span style="font-size:9px;padding:2px 6px;border-radius:10px;font-weight:700;color:${eml.color};background:${eml.bg};" title="Estado de la publicación en ML">${eml.label}</span>`:''}
         </div>
       </td>
       <td style="max-width:180px;">${esc(p.nombre)}</td>
@@ -4298,7 +4309,7 @@ async function revisarPreciosDinamicos(){
       const r=await fetch(SB_URL+"/functions/v1/ml-oauth", {
         method:"POST",
         headers:{"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY},
-        body:JSON.stringify({grant_type:"proxy", path:"/items?ids="+encodeURIComponent(ids)+"&attributes=id,tags,catalog_listing,catalog_product_id", access_token:mlToken})
+        body:JSON.stringify({grant_type:"proxy", path:"/items?ids="+encodeURIComponent(ids)+"&attributes=id,tags,catalog_listing,catalog_product_id,status", access_token:mlToken})
       });
       const data=await r.json();
       if(!r.ok || data.error || !Array.isArray(data)){ fallidos+=lote.length; continue; }
@@ -4312,10 +4323,11 @@ async function revisarPreciosDinamicos(){
         p.precio_dinamico = esDinamico;
         p.es_catalogo = esCatalogo;
         p.catalog_product_id = body.catalog_product_id||null;
+        p.estado_ml = body.status||null;
         if(esDinamico) activos++;
         if(esCatalogo) catalogo++;
         revisados++;
-        try{ await sbUpdate("productos","sku=eq."+encodeURIComponent(p.sku),{precio_dinamico:esDinamico, es_catalogo:esCatalogo, catalog_product_id:p.catalog_product_id}); }catch(e){}
+        try{ await sbUpdate("productos","sku=eq."+encodeURIComponent(p.sku),{precio_dinamico:esDinamico, es_catalogo:esCatalogo, catalog_product_id:p.catalog_product_id, estado_ml:p.estado_ml}); }catch(e){}
       }
     }catch(e){ fallidos+=lote.length; }
     await new Promise(res=>setTimeout(res,200));
