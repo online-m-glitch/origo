@@ -4315,7 +4315,7 @@ async function revisarPreciosDinamicos(){
       if(!r.ok || data.error || !Array.isArray(data)){ fallidos+=lote.length; continue; }
       for(const res of data){
         const body=res.body||{};
-        if(res.code!==200 || !body.id) { fallidos++; continue; }
+        if(res.code!==200 || !body.id) { fallidos++; console.log("❌ Falló para un ítem del lote — code:", res.code, "| body:", body); continue; }
         const p=lote.find(x=>x.ml_item_id.toUpperCase()===String(body.id).toUpperCase());
         if(!p) continue;
         const esDinamico = Array.isArray(body.tags) && body.tags.includes("dynamic_standard_price");
@@ -4324,6 +4324,7 @@ async function revisarPreciosDinamicos(){
         p.es_catalogo = esCatalogo;
         p.catalog_product_id = body.catalog_product_id||null;
         p.estado_ml = body.status||null;
+        console.log("🔍 Revisión ML —", p.sku, "| id:", body.id, "| status:", body.status, "| respuesta completa:", body);
         if(esDinamico) activos++;
         if(esCatalogo) catalogo++;
         revisados++;
