@@ -4076,6 +4076,7 @@ function renderAnalisis(){
   const provFiltro=selProv?.value||"";
 
   const lista=productos.filter(p=>{
+    if(!p.ml_item_id) return false; // sin publicación de ML vinculada no tiene sentido "analizarlo" acá
     if(filtro && calcAnaliML(p).rec!==filtro) return false;
     if(provFiltro && p.proveedor!==provFiltro) return false;
     if(q){
