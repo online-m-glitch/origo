@@ -2478,6 +2478,20 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
   <div class="modal modal-sm">
     <h3>🎯 Automatización de precios</h3>
     <div id="autoPrecioContenido" style="font-size:13px;line-height:1.6;margin-bottom:16px;">Consultando...</div>
+    <div id="autoPrecioRangoWrap" style="display:none;margin-bottom:16px;">
+      <div style="font-size:12px;font-weight:700;color:#0d2259;margin-bottom:8px;">Ajustar rango (la automatización sigue activa, solo cambia el mínimo/máximo)</div>
+      <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group" style="margin:0;">
+          <label style="font-size:11px;">Precio mínimo ($)</label>
+          <input type="number" id="autoPrecioMin" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:13px;">
+        </div>
+        <div class="form-group" style="margin:0;">
+          <label style="font-size:11px;">Precio máximo ($)</label>
+          <input type="number" id="autoPrecioMax" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:13px;">
+        </div>
+      </div>
+      <button class="btn btn-primary" style="width:100%;margin-top:10px;" onclick="actualizarRangoAutomatizacion()">💾 Guardar nuevo rango</button>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="document.getElementById('modalAutomatizacionPrecio').classList.remove('show')">Cerrar</button>
       <button class="btn btn-danger" id="btnDesactivarAutomatizacion" style="display:none;" onclick="desactivarAutomatizacionPrecio()">🗑️ Desactivar automatización</button>
@@ -6422,13 +6436,14 @@ function abrirEdicionPublicacionML(sku){
   toast("Te llevamos a tus publicaciones, ya buscado por SKU "+p.sku+" — entrá al resultado y apretá \"Modificar\".","ok",6000);
 }
 
-// ── Automatización de precios (precio dinámico) — ver estado y desactivar ──
-let _autoPrecioActual={mlItemId:null, sku:null};
+// ── Automatización de precios (precio dinámico) — ver estado, ajustar rango y desactivar ──
+let _autoPrecioActual={mlItemId:null, sku:null, ruleId:null};
 async function verAutomatizacionPrecio(mlItemId, sku){
   if(!mlItemId) return;
-  _autoPrecioActual={mlItemId, sku};
+  _autoPrecioActual={mlItemId, sku, ruleId:null};
   document.getElementById("autoPrecioContenido").innerHTML="Consultando en MercadoLibre...";
   document.getElementById("btnDesactivarAutomatizacion").style.display="none";
+  document.getElementById("autoPrecioRangoWrap").style.display="none";
   document.getElementById("modalAutomatizacionPrecio").classList.add("show");
 
   if(!mlToken){ await verificarTokenML(); }
@@ -6447,17 +6462,49 @@ async function verAutomatizacionPrecio(mlItemId, sku){
       return;
     }
     const activa = data.status==="ACTIVE";
+    _autoPrecioActual.ruleId = data.item_rule?.rule_id||null;
     document.getElementById("autoPrecioContenido").innerHTML = `
       <div><strong>Estado:</strong> ${activa?'🟢 Activa':'⏸️ Pausada'}</div>
       <div><strong>Regla:</strong> ${esc(data.item_rule?.rule_id||'—')}</div>
-      <div><strong>Precio mínimo permitido:</strong> $${fmt(data.min_price||0)}</div>
-      <div><strong>Precio máximo permitido:</strong> $${fmt(data.max_price||0)}</div>
+      <div><strong>Precio mínimo actual:</strong> $${fmt(data.min_price||0)}</div>
+      <div><strong>Precio máximo actual:</strong> $${fmt(data.max_price||0)}</div>
       ${data.status_detail?.message?'<div style="margin-top:6px;color:var(--text-soft);font-size:12px;">'+esc(data.status_detail.message)+'</div>':''}
-      <div style="margin-top:10px;font-size:12px;color:var(--text-soft);">Mientras esté activa, MercadoLibre le va ajustando el precio solo dentro de ese rango — por eso ORIGO no puede pisarlo. Si la desactivás, el precio queda fijo en el último valor y volvés a poder actualizarlo desde acá.</div>
+      <div style="margin-top:10px;font-size:12px;color:var(--text-soft);">${activa?'Mientras esté activa, MercadoLibre le ajusta el precio dentro del rango de abajo — podés modificar ese rango sin desactivarla.':'Está pausada — no está ajustando el precio, podés actualizarlo directo desde el simulador o Análisis ML.'}</div>
     `;
     document.getElementById("btnDesactivarAutomatizacion").style.display=activa?"inline-flex":"none";
+    if(activa && _autoPrecioActual.ruleId){
+      document.getElementById("autoPrecioMin").value = data.min_price||"";
+      document.getElementById("autoPrecioMax").value = data.max_price||"";
+      document.getElementById("autoPrecioRangoWrap").style.display="block";
+    }
   }catch(e){
     document.getElementById("autoPrecioContenido").textContent="Error consultando ML: "+e.message;
+  }
+}
+async function actualizarRangoAutomatizacion(){
+  if(checkViewer("Ajustar rango de automatización de precios")) return;
+  const {mlItemId, ruleId} = _autoPrecioActual;
+  if(!mlItemId || !ruleId){ toast("Faltan datos de la automatización — cerrá y volvé a abrir el cartel.","err"); return; }
+  const min = parseFloat(document.getElementById("autoPrecioMin").value);
+  const max = parseFloat(document.getElementById("autoPrecioMax").value);
+  if(!min || !max || min<=0 || max<=0){ toast("Ingresá un mínimo y un máximo válidos.","err"); return; }
+  if(min>=max){ toast("El mínimo tiene que ser menor que el máximo.","err"); return; }
+
+  try{
+    const r=await fetch(SB_URL+"/functions/v1/ml-oauth", {
+      method:"POST",
+      headers:{"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY},
+      body:JSON.stringify({grant_type:"proxy", path:"/pricing-automation/items/"+encodeURIComponent(mlItemId)+"/automation", method:"PUT", data:{rule_id:ruleId, min_price:min, max_price:max}, access_token:mlToken})
+    });
+    const data=await r.json().catch(()=>({}));
+    if(!r.ok || data.error){
+      toast("No se pudo actualizar el rango: "+(data.message||data.error||"error desconocido"),"err",7000);
+      return;
+    }
+    toast(`Rango actualizado ✅ · Mínimo $${fmt(min)} — Máximo $${fmt(max)}`,"ok",5000);
+    document.getElementById("modalAutomatizacionPrecio").classList.remove("show");
+  }catch(e){
+    toast("Error actualizando el rango: "+e.message,"err");
   }
 }
 async function desactivarAutomatizacionPrecio(){
