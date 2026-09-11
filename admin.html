@@ -4300,7 +4300,7 @@ async function revisarPreciosDinamicos(){
   if(!conVinculo.length){ toast("No hay productos vinculados a una Publicación ML todavía.","err"); return; }
 
   mostrarCargando(true);
-  let activos=0, catalogo=0, revisados=0, fallidos=0;
+  let activos=0, catalogo=0, revisados=0, fallidos=0, erroresGuardado=0, primerErrorGuardado=null;
   const LOTE=20;
   for(let i=0;i<conVinculo.length;i+=LOTE){
     const lote=conVinculo.slice(i,i+LOTE);
@@ -4315,7 +4315,7 @@ async function revisarPreciosDinamicos(){
       if(!r.ok || data.error || !Array.isArray(data)){ fallidos+=lote.length; continue; }
       for(const res of data){
         const body=res.body||{};
-        if(res.code!==200 || !body.id) { fallidos++; console.log("❌ Falló para un ítem del lote — code:", res.code, "| body:", body); continue; }
+        if(res.code!==200 || !body.id) { fallidos++; continue; }
         const p=lote.find(x=>x.ml_item_id.toUpperCase()===String(body.id).toUpperCase());
         if(!p) continue;
         const esDinamico = Array.isArray(body.tags) && body.tags.includes("dynamic_standard_price");
@@ -4324,11 +4324,16 @@ async function revisarPreciosDinamicos(){
         p.es_catalogo = esCatalogo;
         p.catalog_product_id = body.catalog_product_id||null;
         p.estado_ml = body.status||null;
-        console.log("🔍 Revisión ML —", p.sku, "| id:", body.id, "| status:", body.status, "| respuesta completa:", body);
         if(esDinamico) activos++;
         if(esCatalogo) catalogo++;
         revisados++;
-        try{ await sbUpdate("productos","sku=eq."+encodeURIComponent(p.sku),{precio_dinamico:esDinamico, es_catalogo:esCatalogo, catalog_product_id:p.catalog_product_id, estado_ml:p.estado_ml}); }catch(e){}
+        try{
+          await sbUpdate("productos","sku=eq."+encodeURIComponent(p.sku),{precio_dinamico:esDinamico, es_catalogo:esCatalogo, catalog_product_id:p.catalog_product_id, estado_ml:p.estado_ml});
+        }catch(e){
+          erroresGuardado++;
+          if(!primerErrorGuardado) primerErrorGuardado=e.message;
+          console.error("❌ Error guardando", p.sku, "en Supabase:", e.message);
+        }
       }
     }catch(e){ fallidos+=lote.length; }
     await new Promise(res=>setTimeout(res,200));
@@ -4336,7 +4341,11 @@ async function revisarPreciosDinamicos(){
   mostrarCargando(false);
   if(revisados>0) await guardarUltimaSync("dinamico","ultimaSyncDinamico");
   renderAnalisis(); renderProductos();
-  toast(`🎯 Revisados: ${revisados} · Precio dinámico activo: ${activos} · Publicaciones de Catálogo: ${catalogo}`+(fallidos?` · ${fallidos} con error`:""),(activos||catalogo)?"err":"ok",7000);
+  if(erroresGuardado>0){
+    toast(`⚠️ Se consultó ML bien, pero no se pudo GUARDAR en Supabase para ${erroresGuardado} producto(s). Los datos se ven ahora pero se van a perder si recargás la página. Detalle: ${primerErrorGuardado} — probablemente falte correr un SQL de migración (alter table).`,"err",12000);
+  } else {
+    toast(`🎯 Revisados: ${revisados} · Precio dinámico activo: ${activos} · Publicaciones de Catálogo: ${catalogo}`+(fallidos?` · ${fallidos} con error`:""),(activos||catalogo)?"err":"ok",7000);
+  }
 }
 async function sincronizarFeesML(){
   if(checkViewer("Sincronizar comisiones ML")) return;
