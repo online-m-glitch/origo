@@ -1730,8 +1730,8 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
           <input type="text" id="garLoteProveedor" list="provListProd" placeholder="Ej: ANTHAY">
         </div>
         <div class="form-group">
-          <label>Nro. de remito (opcional)</label>
-          <input type="text" id="garLoteRemito" placeholder="Ej: R-0045">
+          <label>Nro. de remito (automático)</label>
+          <input type="text" id="garLoteRemito" readonly style="background:var(--surface-2,#f4f6fb);color:var(--text-soft);cursor:not-allowed;">
         </div>
         <div class="form-group">
           <label>Observaciones</label>
@@ -6043,6 +6043,17 @@ async function dividirDevolucionSiHaceFalta(dev, cantidadParaAccion){
   if(dev.id) await sbGuardar("updateDevolucion",{id:dev.id, campos:{cantidad:cantidadParaAccion}});
 }
 
+// Numeración automática de remitos de garantía — nada de tipearlo a mano, para no repetir números
+// ni dejarlo vacío. Se guarda el próximo número en app_config para que siga la secuencia entre sesiones.
+async function generarNumeroRemitoGarantia(){
+  let n = (appConfig.proximo_remito_garantia!=null) ? parseInt(appConfig.proximo_remito_garantia) : 1;
+  if(!n || n<1) n=1;
+  const remito = "G-"+String(n).padStart(4,"0");
+  appConfig.proximo_remito_garantia = n+1;
+  try{ await sbGuardar("config", {key:"proximo_remito_garantia", value:String(n+1)}); }catch(e){}
+  return remito;
+}
+
 function abrirModalGarantia(idx){
   devIdxActual=idx;
   const dev=devoluciones[idx];
@@ -6067,7 +6078,8 @@ async function confirmarEnvioGarantia(){
   try{ await dividirDevolucionSiHaceFalta(dev, cantidadElegida); }
   catch(e){ toast("Error separando la cantidad: "+e.message,"err"); return; }
 
-  const campos={estado:"Enviado a garantía", proveedor, fecha_garantia:fecha};
+  const remito = await generarNumeroRemitoGarantia();
+  const campos={estado:"Enviado a garantía", proveedor, fecha_garantia:fecha, remito_garantia:remito};
   try{
     if(dev.id) await sbGuardar("updateDevolucion",{id:dev.id, campos});
     Object.assign(dev, campos);
@@ -6077,7 +6089,7 @@ async function confirmarEnvioGarantia(){
   // (era "Defectuoso"/"Dañado", quedó en revisión), no hay nada que restar del stock vendible.
   if(dev.suma_stock!==false){
     const p=productos.find(x=>x.sku.toUpperCase()===dev.sku.toUpperCase());
-    const mData={fecha, tipo:"Baja", sku:dev.sku, producto:dev.producto||"", cantidad:dev.cantidad, costo:p?p.costo:0, precio:0, obs:"Enviado a garantía a "+proveedor+(obsExtra?" — "+obsExtra:""), origen:""};
+    const mData={fecha, tipo:"Baja", sku:dev.sku, producto:dev.producto||"", cantidad:dev.cantidad, costo:p?p.costo:0, precio:0, obs:"Enviado a garantía a "+proveedor+" — Remito "+remito+(obsExtra?" — "+obsExtra:""), origen:""};
     try{
       const sm=await sbGuardar("movimiento",mData);
       movimientos.unshift(Object.assign({},mData,sm||{}));
@@ -6086,7 +6098,7 @@ async function confirmarEnvioGarantia(){
 
   document.getElementById("modalGarantia").classList.remove("show");
   devIdxActual=null;
-  toast("Enviado a garantía ✅ · Stock depósito actualizado.","ok");
+  toast("Enviado a garantía ✅ · Remito "+remito+" · Stock depósito actualizado.","ok",6000);
   renderDevoluciones(); renderStock(); renderAlertas(); renderMovimientos(); renderPanel();
 }
 
@@ -6138,7 +6150,7 @@ async function confirmarAptoVenta(){
 }
 
 // ── Envío a garantía en LOTE (varios productos, un solo remito al mismo proveedor) ──
-function abrirModalGarantiaLote(){
+async function abrirModalGarantiaLote(){
   const idxs = [...document.querySelectorAll(".dev-check:checked")].map(c=>parseInt(c.dataset.idx));
   if(!idxs.length){ toast("Seleccioná al menos una devolución.","err"); return; }
   window._garLoteIdxs = idxs;
@@ -6154,9 +6166,10 @@ function abrirModalGarantiaLote(){
 
   document.getElementById("garLoteFecha").value = new Date().toISOString().split("T")[0];
   document.getElementById("garLoteProveedor").value = "";
-  document.getElementById("garLoteRemito").value = "";
+  document.getElementById("garLoteRemito").value = "Generando...";
   document.getElementById("garLoteObs").value = "";
   document.getElementById("modalGarantiaLote").classList.add("show");
+  document.getElementById("garLoteRemito").value = await generarNumeroRemitoGarantia();
 }
 async function confirmarEnvioGarantiaLote(){
   const idxs = window._garLoteIdxs||[];
