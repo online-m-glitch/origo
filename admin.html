@@ -4771,6 +4771,58 @@ function renderLineasCompra(){
 }
 
 let _guardandoCompra = false;
+// Después de guardar una compra: si algún costo cargado difiere del costo actual en Catálogo,
+// pregunta si querés actualizarlo ahí también (para que Rentabilidad/Análisis usen el costo real más reciente).
+// Encadena con "seguir" al terminar (sea que confirme o cancele), para poder mostrar después la
+// pregunta de Caja sin que las dos confirmaciones se pisen entre sí.
+function ofrecerActualizarCostosCompra(lineasCopia, seguir){
+  const cambios = lineasCopia.map(l=>{
+    const p = productos.find(x=>x.sku.toUpperCase()===l.sku.toUpperCase());
+    return (p && Math.abs((p.costo||0)-l.costo)>0.009) ? {p, costoViejo:p.costo||0, costoNuevo:l.costo} : null;
+  }).filter(Boolean);
+
+  if(!cambios.length){ seguir(); return; }
+
+  const filas = cambios.map(c=>`• ${esc(c.p.sku)}: $${fmt(c.costoViejo)} → <strong>$${fmt(c.costoNuevo)}</strong>`).join("<br>");
+  confirmCb = async()=>{
+    for(const c of cambios){
+      c.p.costo = c.costoNuevo;
+      try{ await sbUpdate("productos","sku=eq."+encodeURIComponent(c.p.sku),{costo:c.costoNuevo}); }catch(e){}
+    }
+    renderProductos();
+    toast(`Costo actualizado en Catálogo para ${cambios.length} producto(s) ✅`,"ok");
+    seguir();
+  };
+  document.getElementById("confirmBtn").textContent = "Sí, actualizar";
+  document.getElementById("confirmCancelBtn").textContent = "No, dejar como está";
+  document.getElementById("confirmCancelBtn").onclick = function(){
+    document.getElementById("confirmCancelBtn").onclick = cerrarConfirm; // restaurar el default para el resto del sistema
+    cerrarConfirm();
+    seguir();
+  };
+  document.getElementById("confirmMsg").innerHTML =
+    `El costo de esta compra es distinto al que tenés cargado en Catálogo para ${cambios.length} producto${cambios.length!==1?'s':''}:<br><br>${filas}<br><br>¿Actualizar el Catálogo con el costo nuevo?`;
+  document.getElementById("modalConfirm").classList.add("show");
+}
+// Ofrece descontar de Caja si corresponde según la forma de pago — separado en función propia
+// para poder encadenarlo después de la pregunta de actualizar costos.
+function ofrecerDescontarCajaCompra(fecha, proveedor, factura, total, formaPago, compraId){
+  const cajaNombreCompra = cajaDeMetodoPago(formaPago);
+  if(!cajaNombreCompra) return;
+  confirmCb=async()=>{
+    const movCaja={fecha, caja:cajaNombreCompra, tipo:"Egreso", monto:total, concepto:"Compra a "+proveedor+(factura?" — Fact. "+factura:""), origen:"compra", referencia:String(compraId)};
+    try{
+      const savedCaja=await sbGuardar("cajamov",movCaja);
+      cajaMovimientos.unshift(Object.assign({},movCaja,savedCaja||{}));
+      toast("$"+fmt(total)+" descontado de Caja "+cajaNombreCompra+" ✅","ok");
+    }catch(e){ toast("Error descontando de Caja: "+e.message,"err"); }
+  };
+  document.getElementById("confirmBtn").textContent="Sí, descontar";
+  document.getElementById("confirmCancelBtn").textContent="No, descontar";
+  document.getElementById("confirmMsg").innerHTML=`¿Descontar <strong>$${fmt(total)}</strong> de <strong>Caja ${cajaNombreCompra}</strong> por esta compra?`;
+  document.getElementById("modalConfirm").classList.add("show");
+}
+
 async function guardarCompra(){
   if(checkViewer("Registrar compras")) return;
   if(_guardandoCompra){ toast("Espera, guardando...","err"); return; }
@@ -4846,6 +4898,8 @@ async function guardarCompra(){
       actualizarProvLists();
       renderPanel(); renderStock(); renderAlertas(); renderMovimientos(); renderCC(); renderCompras();
       toast("Compra actualizada ✅ · $"+fmt(total)+" → CC y Movimientos recalculados","ok",4500);
+
+      ofrecerActualizarCostosCompra(lineasCopia, ()=>{});
     }catch(e){
       toast("Error actualizando compra: "+e.message,"err");
     }finally{
@@ -4896,22 +4950,11 @@ async function guardarCompra(){
     renderPanel(); renderStock(); renderAlertas(); renderMovimientos(); renderCC(); renderCompras();
     toast("Compra registrada ✅ · "+lineasCopia.length+" línea"+(lineasCopia.length!==1?"s":"")+" · $"+fmt(total)+" → CC y Movimientos actualizados","ok",4500);
 
-    // 7. Si se pagó con Efectivo/MercadoPago/Transferencia MP, ofrecer descontarlo de la Caja correspondiente
-    const cajaNombreCompra = cajaDeMetodoPago(formaPago);
-    if(cajaNombreCompra){
-      confirmCb=async()=>{
-        const movCaja={fecha, caja:cajaNombreCompra, tipo:"Egreso", monto:total, concepto:"Compra a "+proveedor+(factura?" — Fact. "+factura:""), origen:"compra", referencia:String(compra.id)};
-        try{
-          const savedCaja=await sbGuardar("cajamov",movCaja);
-          cajaMovimientos.unshift(Object.assign({},movCaja,savedCaja||{}));
-          toast("$"+fmt(total)+" descontado de Caja "+cajaNombreCompra+" ✅","ok");
-        }catch(e){ toast("Error descontando de Caja: "+e.message,"err"); }
-      };
-      document.getElementById("confirmBtn").textContent="Sí, descontar";
-      document.getElementById("confirmCancelBtn").textContent="No, descontar";
-      document.getElementById("confirmMsg").innerHTML=`¿Descontar <strong>$${fmt(total)}</strong> de <strong>Caja ${cajaNombreCompra}</strong> por esta compra?`;
-      document.getElementById("modalConfirm").classList.add("show");
-    }
+    // 7. Primero preguntar si hay que actualizar costos del Catálogo, y recién después (encadenado,
+    // para no mostrar dos carteles a la vez) ofrecer descontar de Caja si corresponde.
+    ofrecerActualizarCostosCompra(lineasCopia, ()=>{
+      ofrecerDescontarCajaCompra(fecha, proveedor, factura, total, formaPago, compra.id);
+    });
 
   }catch(e){
     toast("Error guardando compra: "+e.message,"err");
@@ -6066,24 +6109,30 @@ function abrirModalGarantia(idx){
   document.getElementById("modalGarantia").classList.add("show");
 }
 async function confirmarEnvioGarantia(){
+  console.log("🔍 confirmarEnvioGarantia — devIdxActual:", devIdxActual);
   if(devIdxActual===null) return;
   const dev=devoluciones[devIdxActual];
+  console.log("🔍 dev antes de nada:", JSON.parse(JSON.stringify(dev)));
   const fecha=document.getElementById("garFecha").value || new Date().toISOString().split("T")[0];
   const proveedor=document.getElementById("garProveedor").value.trim();
   const obsExtra=document.getElementById("garObs").value.trim();
   const cantidadElegida=Math.min(parseInt(document.getElementById("garCantidad").value)||dev.cantidad, dev.cantidad);
-  if(!proveedor){ toast("Ingresá el proveedor.","err"); return; }
-  if(cantidadElegida<=0){ toast("Ingresá una cantidad válida.","err"); return; }
+  console.log("🔍 proveedor:", JSON.stringify(proveedor), "| cantidadElegida:", cantidadElegida);
+  if(!proveedor){ toast("Ingresá el proveedor.","err"); console.log("🔍 CORTÓ por falta de proveedor"); return; }
+  if(cantidadElegida<=0){ toast("Ingresá una cantidad válida.","err"); console.log("🔍 CORTÓ por cantidad inválida"); return; }
 
   try{ await dividirDevolucionSiHaceFalta(dev, cantidadElegida); }
-  catch(e){ toast("Error separando la cantidad: "+e.message,"err"); return; }
+  catch(e){ toast("Error separando la cantidad: "+e.message,"err"); console.log("🔍 CORTÓ en dividirDevolucionSiHaceFalta:", e); return; }
 
   const remito = await generarNumeroRemitoGarantia();
+  console.log("🔍 remito generado:", remito);
   const campos={estado:"Enviado a garantía", proveedor, fecha_garantia:fecha, remito_garantia:remito};
+  console.log("🔍 campos a guardar:", campos, "| dev.id:", dev.id);
   try{
     if(dev.id) await sbGuardar("updateDevolucion",{id:dev.id, campos});
     Object.assign(dev, campos);
-  }catch(e){ toast("Error actualizando: "+e.message,"err"); return; }
+    console.log("🔍 dev DESPUÉS de guardar:", JSON.parse(JSON.stringify(dev)));
+  }catch(e){ toast("Error actualizando: "+e.message,"err"); console.log("🔍 CORTÓ guardando en Supabase:", e); return; }
 
   // Resta stock SOLO si originalmente había sumado al vendible (suma_stock=true) — si nunca sumó
   // (era "Defectuoso"/"Dañado", quedó en revisión), no hay nada que restar del stock vendible.
@@ -6394,7 +6443,10 @@ function renderDevoluciones(){
     const badgeCls=d.estado==="En depósito"?"badge-orange":d.estado==="Enviado a garantía"?"badge-blue":"badge-green";
     let colProvResultado="—";
     const resultadoLabel={Reemplazo:"Reemplazo",Reparado:"Reparado",Credito:"💳 Crédito a favor",Reembolso:"Reembolso",Rechazado:"Rechazado","Apto para venta":"✅ Apto para venta"};
-    if(d.estado==="Enviado a garantía") colProvResultado=esc(d.proveedor||"")+(d.remito_garantia?` · <a href="#" onclick="verComprobanteRemito('${esc(d.remito_garantia)}','${esc(d.proveedor)}');return false;" style="color:var(--ml-blue);text-decoration:underline;">🖨️ Remito ${esc(d.remito_garantia)}</a>`:"");
+    if(d.estado==="Enviado a garantía"){
+      console.log("🔍 Render fila 'Enviado a garantía' —", d.sku, "| remito_garantia:", JSON.stringify(d.remito_garantia), "| id:", d.id);
+      colProvResultado=esc(d.proveedor||"")+(d.remito_garantia?` · <a href="#" onclick="verComprobanteRemito('${esc(d.remito_garantia)}','${esc(d.proveedor)}');return false;" style="color:var(--ml-blue);text-decoration:underline;">🖨️ Remito ${esc(d.remito_garantia)}</a>`:"");
+    }
     if(d.estado==="Resuelto") colProvResultado=(d.proveedor?esc(d.proveedor)+" · ":"")+esc(resultadoLabel[d.resultado]||d.resultado||"")+(d.remito_garantia?` · <a href="#" onclick="verComprobanteRemito('${esc(d.remito_garantia)}','${esc(d.proveedor)}');return false;" style="color:var(--ml-blue);text-decoration:underline;font-size:11px;">🖨️ Remito</a>`:"");
     let acciones="";
     if(d.estado==="En depósito") acciones+=`<button class="btn btn-ghost btn-sm" onclick="abrirModalGarantia(${realIdx})">📦 Enviar a garantía</button> <button class="btn btn-ghost btn-sm" onclick="abrirModalAptoVenta(${realIdx})" title="El producto está bien, no hace falta mandarlo al proveedor">✅ Apto para venta</button> `;
