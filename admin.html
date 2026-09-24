@@ -6833,7 +6833,7 @@ async function verAutomatizacionPrecio(mlItemId, sku){
         const cajaPtw=document.createElement("div");
         cajaPtw.style.cssText="margin-top:12px;padding:10px 12px;background:#f0f9ff;border-radius:8px;border:1px solid #bae6fd;font-size:12px;";
         cajaPtw.innerHTML = `📊 <strong>Precio recomendado por ML para competir:</strong> $${fmt(ptw)}`+
-          (activa?` <button class="btn btn-ghost btn-sm" style="margin-left:6px;padding:2px 8px;font-size:11px;" onclick="document.getElementById('autoPrecioMax').value=${ptw};">Usar como máximo</button>`:"");
+          (activa?` <button class="btn btn-ghost btn-sm" style="margin-left:6px;padding:2px 8px;font-size:11px;" onclick="document.getElementById('autoPrecioMin').value=${ptw};">Usar como mínimo</button>`:"");
         document.getElementById("autoPrecioContenido").appendChild(cajaPtw);
       }
     }catch(e){ /* si falla, simplemente no se muestra esta info extra */ }
@@ -6861,8 +6861,31 @@ async function actualizarRangoAutomatizacion(){
       toast("No se pudo actualizar el rango: "+(data.message||data.error||"error desconocido"),"err",7000);
       return;
     }
-    toast(`Rango actualizado ✅ · Mínimo $${fmt(min)} — Máximo $${fmt(max)}`,"ok",5000);
+    toast(`Rango actualizado ✅ · Mínimo $${fmt(min)} — Máximo $${fmt(max)} — actualizando precio real...`,"ok",5000);
     document.getElementById("modalAutomatizacionPrecio").classList.remove("show");
+
+    // ML reajusta el precio real de la publicación al cambiar el rango — esperamos un instante y
+    // lo traemos de nuevo, para que Análisis ML no se quede mostrando el precio viejo.
+    const sku = _autoPrecioActual.sku;
+    await new Promise(res=>setTimeout(res,1500));
+    try{
+      const rItem=await fetch(SB_URL+"/functions/v1/ml-oauth", {
+        method:"POST",
+        headers:{"Content-Type":"application/json","apikey":SB_KEY,"Authorization":"Bearer "+SB_KEY},
+        body:JSON.stringify({grant_type:"proxy", path:"/items/"+encodeURIComponent(mlItemId), access_token:mlToken})
+      });
+      const dataItem=await rItem.json();
+      if(rItem.ok && dataItem.price!=null){
+        if(feesML[sku]) feesML[sku].ml_price = dataItem.price;
+        const p=productos.find(x=>x.sku.toUpperCase()===(sku||"").toUpperCase());
+        if(p){
+          p.precio = dataItem.price;
+          try{ await sbUpdate("productos","sku=eq."+encodeURIComponent(p.sku),{precio:dataItem.price}); }catch(e){}
+        }
+        renderAnalisis(); renderProductos();
+        toast(`Precio real actualizado: $${fmt(dataItem.price)} ✅`,"ok",4000);
+      }
+    }catch(e){ /* si falla el refresco, el precio viejo se corrige con el próximo "Sincronizar comisiones ML" */ }
   }catch(e){
     toast("Error actualizando el rango: "+e.message,"err");
   }
