@@ -653,6 +653,7 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
               </select>
               <button class="btn btn-primary admin-only" onclick="abrirModalProducto()">+ Agregar producto</button>
               <button class="btn btn-ghost admin-only" onclick="abrirPublicadorMasivo()" title="Publicar en Mercado Libre varios productos del Catálogo que todavía no tienen publicación, clonando la configuración de una que ya funciona">📤 Publicador masivo</button>
+              <button class="btn btn-ghost admin-only" onclick="abrirSugerenciaStockMinimo()" title="Sugiere un Stock Mínimo para cada producto igual al 70% de lo vendido en los últimos 30 días">🎯 Sugerir mínimos</button>
               <button class="btn btn-danger admin-only" id="btnElimSel" onclick="eliminarSeleccionados()" style="display:none;">🗑️ Eliminar seleccionados (<span id="selCount">0</span>)</button>
               <button class="btn btn-ghost" onclick="exportarCSV()" title="Descargar catálogo como CSV">⬇️ Exportar CSV</button>
               <label class="btn btn-ghost" style="cursor:pointer;" title="Importar desde CSV">
@@ -762,7 +763,7 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>SKU</th><th>Producto</th><th>Proveedor</th><th>Stock</th><th>Mín</th><th>Diferencia</th><th>Costo repo ($)</th><th>Estado</th></tr></thead>
+              <thead><tr><th>SKU</th><th>Producto</th><th>Proveedor</th><th title="Stock físico en tu depósito propio">Stock Depósito</th><th title="Stock disponible en el Full de MercadoLibre">Stock Full</th><th title="Depósito + Full — es la que se compara contra el mínimo">Total</th><th>Mín</th><th>Diferencia</th><th>Costo repo ($)</th><th>Estado</th></tr></thead>
               <tbody id="alertasBody"></tbody>
             </table>
             <div class="empty" id="alertasEmpty" style="display:none;"><div class="icon">✅</div><p>Todo el stock está por encima del mínimo.</p></div>
@@ -1776,6 +1777,29 @@ html[data-theme="dark"] [style*="background:#fff"]{background:var(--surface) !im
               <button class="btn btn-primary" id="pmBtnPublicar" onclick="publicarSeleccionadosMasivo()">🚀 Publicar seleccionados</button>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal Sugerencia de Stock Mínimo -->
+    <div class="overlay" id="modalSugerenciaMin">
+      <div class="modal" style="max-width:800px;max-height:88vh;overflow-y:auto;">
+        <h3>🎯 Sugerencia de Stock Mínimo</h3>
+        <div style="font-size:12px;color:var(--text-soft);margin-bottom:14px;">
+          Mínimo sugerido = 70% de lo vendido en los últimos 30 días. Solo se muestran los productos donde el mínimo sugerido difiere del actual. Elegí cuáles aplicar.
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+          <label style="font-size:12px;"><input type="checkbox" id="sugMinCheckAll" onchange="toggleCheckAllSugMin(this.checked)" checked> Seleccionar todos</label>
+        </div>
+        <div class="table-wrap" style="max-height:380px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;margin-bottom:14px;">
+          <table>
+            <thead><tr><th style="width:28px;"></th><th>SKU</th><th>Producto</th><th>Vendido (30 días)</th><th>Mínimo actual</th><th>Mínimo sugerido</th></tr></thead>
+            <tbody id="sugMinBody"></tbody>
+          </table>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" onclick="document.getElementById('modalSugerenciaMin').classList.remove('show')">Cerrar</button>
+          <button class="btn btn-primary" onclick="aplicarSugerenciasMinimo()">✔ Aplicar seleccionados</button>
         </div>
       </div>
     </div>
@@ -3138,6 +3162,16 @@ function calcularStockFullML(sku, _visitados){
   }
   return s;
 }
+// Unidades vendidas de un SKU en los últimos N días (para sugerir stock mínimo según rotación real)
+function calcularVendidoUltimosDias(sku, dias){
+  const skuUp=(sku||"").toUpperCase().trim();
+  const desde=new Date();
+  desde.setDate(desde.getDate()-dias);
+  const desdeStr=desde.toISOString().split("T")[0];
+  return movimientos
+    .filter(m=>(m.sku||"").toUpperCase().trim()===skuUp && m.tipo==="Venta" && m.fecha>=desdeStr)
+    .reduce((a,m)=>a+(Number(m.cantidad)||0),0);
+}
 function calcularVendido(sku, origen=null){
   return movimientos
     .filter(m=>m.sku.toUpperCase().trim()===sku.toUpperCase().trim()
@@ -3386,6 +3420,55 @@ function toggleMaximizarModalProducto(){
 // ── Publicador Masivo — crear publicaciones nuevas en ML clonando una plantilla existente ──
 let _pmPlantilla = null; // {category_id, listing_type_id, condition, currency_id, attributes, shipping}
 let _pmProductos = []; // productos elegibles (sin ml_item_id) con overrides editables
+
+// ── Sugerencia de Stock Mínimo (70% de lo vendido en los últimos 30 días) ──
+let _sugMinLista = [];
+function abrirSugerenciaStockMinimo(){
+  if(checkViewer("Sugerir mínimos de stock")) return;
+  _sugMinLista = productos.map(p=>{
+    const vendido30 = calcularVendidoUltimosDias(p.sku, 30);
+    const sugerido = Math.round(vendido30*0.7);
+    return {sku:p.sku, nombre:p.nombre, vendido30, actual:p.stockMin||0, sugerido, incluir:true};
+  }).filter(x=>x.sugerido!==x.actual);
+
+  if(!_sugMinLista.length){
+    toast("Todos los mínimos ya coinciden con la sugerencia (70% de ventas de 30 días) — nada para ajustar.","ok",5000);
+    return;
+  }
+  renderSugerenciaMin();
+  document.getElementById("sugMinCheckAll").checked = true;
+  document.getElementById("modalSugerenciaMin").classList.add("show");
+}
+function renderSugerenciaMin(){
+  document.getElementById("sugMinBody").innerHTML = _sugMinLista.map((s,i)=>{
+    const sube = s.sugerido>s.actual;
+    return `<tr>
+      <td><input type="checkbox" class="sugmin-check" data-i="${i}" ${s.incluir?'checked':''} onchange="_sugMinLista[${i}].incluir=this.checked"></td>
+      <td><span class="sku-tag">${esc(s.sku)}</span></td>
+      <td style="max-width:220px;font-size:12px;">${esc(s.nombre)}</td>
+      <td class="num">${s.vendido30}</td>
+      <td class="num">${s.actual}</td>
+      <td class="num" style="font-weight:700;color:${sube?'var(--red)':'var(--green)'};">${s.sugerido} ${sube?'▲':'▼'}</td>
+    </tr>`;
+  }).join("");
+}
+function toggleCheckAllSugMin(checked){
+  document.querySelectorAll(".sugmin-check").forEach(c=>{ c.checked=checked; const i=parseInt(c.dataset.i); _sugMinLista[i].incluir=checked; });
+}
+async function aplicarSugerenciasMinimo(){
+  const seleccionados = _sugMinLista.filter(s=>s.incluir);
+  if(!seleccionados.length){ toast("Marcá al menos un producto.","err"); return; }
+  let ok=0;
+  for(const s of seleccionados){
+    const p = productos.find(x=>x.sku===s.sku);
+    if(!p) continue;
+    p.stockMin = s.sugerido;
+    try{ await sbUpdate("productos","sku=eq."+encodeURIComponent(p.sku),{stockMin:s.sugerido}); ok++; }catch(e){}
+  }
+  document.getElementById("modalSugerenciaMin").classList.remove("show");
+  renderProductos(); renderAlertas(); renderPanel();
+  toast(`🎯 Mínimo actualizado en ${ok} producto(s) ✅`,"ok",5000);
+}
 
 function abrirPublicadorMasivo(){
   if(checkViewer("Publicador masivo")) return;
@@ -3923,7 +4006,9 @@ function renderAlertas(){
       <td><span class="sku-tag">${esc(p.sku)}</span></td>
       <td>${esc(p.nombre)}</td>
       <td>${esc(p.proveedor||"")}</td>
-      <td class="num ${total<=0?'num-neg':'num-orange'}">${total}</td>
+      <td class="num ${dep<=0?'num-neg':''}">${dep}</td>
+      <td class="num" style="color:var(--ml-blue);font-weight:700;">${full}</td>
+      <td class="num ${total<=0?'num-neg':'num-orange'}" style="font-weight:700;">${total}</td>
       <td class="num">${min}</td>
       <td class="num num-neg">${dif}</td>
       <td class="num">$${fmt(costoRepo)}</td>
@@ -3942,12 +4027,12 @@ function exportarAlertasExcel(){
     const costoRepo=Math.abs(dif)*(p.costo||0);
     return {
       "SKU":p.sku, "Producto":p.nombre, "Proveedor":p.proveedor||"",
-      "Stock":total, "Mín":min, "Diferencia":dif,
+      "Stock Depósito":dep, "Stock Full":full, "Total":total, "Mín":min, "Diferencia":dif,
       "Costo repo ($)":costoRepo, "Estado":urgente?"REPONER URGENTE":"Bajo mínimo"
     };
   });
   const ws=XLSX.utils.json_to_sheet(filas);
-  ws["!cols"]=[{wch:14},{wch:40},{wch:16},{wch:8},{wch:8},{wch:12},{wch:14},{wch:16}];
+  ws["!cols"]=[{wch:14},{wch:40},{wch:16},{wch:14},{wch:10},{wch:8},{wch:8},{wch:12},{wch:14},{wch:16}];
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,"Alertas de Stock");
   XLSX.writeFile(wb,"origo_alertas_stock_"+new Date().toISOString().slice(0,10)+".xlsx");
